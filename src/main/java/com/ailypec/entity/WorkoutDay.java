@@ -1,5 +1,6 @@
 package com.ailypec.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Data;
 import org.hibernate.annotations.CreationTimestamp;
@@ -17,6 +18,7 @@ public class WorkoutDay {
 
     @ManyToOne
     @JoinColumn(name = "plan_id", nullable = false)
+    @JsonIgnore
     private WorkoutPlan workoutPlan;
 
     @Column(name = "day_order", nullable = false)

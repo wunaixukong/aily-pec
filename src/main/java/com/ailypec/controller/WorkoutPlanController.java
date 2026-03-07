@@ -1,6 +1,7 @@
 package com.ailypec.controller;
 
 import com.ailypec.entity.WorkoutPlan;
+import com.ailypec.response.Result;
 import com.ailypec.service.WorkoutPlanService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -34,9 +35,13 @@ public class WorkoutPlanController {
     }
 
     @PutMapping("/{planId}/activate")
-    public ResponseEntity<Void> activatePlan(@PathVariable Long planId, @RequestParam Long userId) {
-        workoutPlanService.activatePlan(userId, planId);
-        return ResponseEntity.ok().build();
+    public Result<Boolean> activatePlan(@PathVariable Long planId, @RequestParam Long userId) {
+        return workoutPlanService.activatePlan(userId, planId);
+    }
+
+    @PostMapping("/edit")
+    public Result<WorkoutPlan> editPlan(@RequestBody WorkoutPlan plan) {
+        return workoutPlanService.updatePlan(plan);
     }
 
     @DeleteMapping("/{planId}")

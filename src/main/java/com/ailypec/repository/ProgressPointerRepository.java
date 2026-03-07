@@ -11,4 +11,6 @@ public interface ProgressPointerRepository extends JpaRepository<ProgressPointer
 
     Optional<ProgressPointer> findByUserId(Long userId);
 
+    ProgressPointer findByActivePlanId(Long activePlanId);
+
 }

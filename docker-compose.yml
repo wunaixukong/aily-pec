@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  aily-pec:
+    build: .
+    container_name: aily-pec-app
+    ports:
+      - "8080:8080"
+    restart: always
+    environment:
+      - TZ=Asia/Shanghai
+    networks:
+      - aily-network
+
+networks:
+  aily-network:
+    driver: bridge

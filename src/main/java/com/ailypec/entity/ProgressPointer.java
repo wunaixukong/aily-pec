@@ -19,6 +19,9 @@ public class ProgressPointer {
     @Column(name = "user_id", nullable = false, unique = true)
     private Long userId;
 
+    /**
+     * 计划id
+     */
     @Column(name = "active_plan_id", nullable = false)
     private Long activePlanId;
 
