@@ -1,0 +1,35 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  # 生产环境数据库配置
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/ailypec}
+    username: ${DATABASE_USERNAME:postgres}
+    password: ${DATABASE_PASSWORD}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+  # 生产环境 Redis
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+  ai:
+    openai:
+      api-key: ${DEEPSEEK_API_KEY}
+
+logging:
+  level:
+    com.ailypec: INFO
+    org.springframework.web: WARN
+  file:
+    name: logs/ailypec.log
