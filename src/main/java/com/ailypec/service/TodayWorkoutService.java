@@ -3,16 +3,19 @@ package com.ailypec.service;
 import com.ailypec.entity.ProgressPointer;
 import com.ailypec.entity.WorkoutDay;
 import com.ailypec.entity.WorkoutPlan;
+import com.ailypec.entity.WorkoutRecord;
 import com.ailypec.repository.ProgressPointerRepository;
 import com.ailypec.repository.UserRepository;
 import com.ailypec.repository.WorkoutDayRepository;
 import com.ailypec.repository.WorkoutPlanRepository;
+import com.ailypec.repository.WorkoutRecordRepository;
 import com.ailypec.response.Result;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
@@ -25,6 +28,7 @@ public class TodayWorkoutService {
     private final WorkoutPlanRepository workoutPlanRepository;
     private final WorkoutDayRepository workoutDayRepository;
     private final ProgressPointerRepository progressPointerRepository;
+    private final WorkoutRecordRepository workoutRecordRepository;
 
     private final WorkoutPlanService workoutPlanService;
 
@@ -60,22 +64,28 @@ public class TodayWorkoutService {
     @Transactional
     public Result<String> completeTodayWorkout(Long userId) {
         // 1. 先查询当前的计划
-        List<WorkoutPlan> activePlans =  workoutPlanRepository.findByUserIdAndIsActiveTrue(userId);
+        List<WorkoutPlan> activePlans = workoutPlanRepository.findByUserIdAndIsActiveTrue(userId);
         if (CollectionUtils.isEmpty(activePlans)) {
             return Result.fail("当前用户没有计划,请先创建一个计划");
         }
         WorkoutPlan activePlan = activePlans.stream().sorted(Comparator.comparing(WorkoutPlan::getCreateTime))
                 .findFirst().get();
 
+        // 2. 校验今天是否已完成训练
+        LocalDate today = LocalDate.now();
+        List<WorkoutRecord> todayRecords = workoutRecordRepository.findByUserIdAndWorkoutDate(userId, today);
+        if (!todayRecords.isEmpty()) {
+            return Result.fail("今天已经完成训练了，明天再来吧！");
+        }
 
-        // 2. 根据当前计划id查询,再去查询进度指针
+        // 3. 根据当前计划id查询,再去查询进度指针
         ProgressPointer pointer = progressPointerRepository.findByActivePlanId(activePlan.getId());
-        if (pointer == null){
+        if (pointer == null) {
             // 有计划但是没有进度的时候,创建兜底进度
             progressPointerService.initProgressPointer(activePlan);
             // 再查一次
             pointer = progressPointerRepository.findByActivePlanId(activePlan.getId());
-            if (pointer == null){
+            if (pointer == null) {
                 return Result.fail("初始化进度失败");
             }
         }
@@ -86,11 +96,24 @@ public class TodayWorkoutService {
             return Result.fail("训练计划为空");
         }
 
-        // 推进指针
+        // 获取当前训练日
+        int currentIndex = pointer.getCurrentDayIndex() % days.size();
+        WorkoutDay currentDay = days.get(currentIndex);
+
+        // 4. 推进指针
         int nextIndex = (pointer.getCurrentDayIndex() + 1) % days.size();
         pointer.setCurrentDayIndex(nextIndex);
         pointer.setLastWorkoutDate(LocalDateTime.now());
         progressPointerRepository.save(pointer);
+
+        // 5. 保存训练记录
+        WorkoutRecord record = new WorkoutRecord();
+        record.setUserId(userId);
+        record.setPlanId(activePlan.getId());
+        record.setWorkoutDayId(currentDay.getId());
+        record.setContent(currentDay.getContent());
+        record.setWorkoutDate(today);
+        workoutRecordRepository.save(record);
 
         // 返回下次训练内容
         return Result.success(days.get(nextIndex).getContent());
