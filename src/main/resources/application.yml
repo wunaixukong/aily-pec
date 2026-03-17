@@ -22,6 +22,25 @@ spring:
         dialect: org.hibernate.dialect.MySQLDialect
         format_sql: false
 
+# 番茄钟配置
+pomodoro:
+  default-config:
+    work-duration: 25
+    short-break-duration: 5
+    long-break-duration: 15
+    long-break-interval: 4
+    auto-start: false
+  workday-config:
+    work-duration: 50
+    short-break-duration: 10
+    long-break-duration: 30
+    long-break-interval: 4
+    auto-start: true
+  work-time:
+    start-hour: 9
+    end-hour: 18
+    enabled: true
+
 # 日志配置
 logging:
   level:
