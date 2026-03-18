@@ -102,3 +102,18 @@ DELIMITER ;
 CALL add_index_if_not_exists('pomodoro_configs', 'idx_user_active_time', '`user_id`, `is_active`, `start_time`, `end_time`');
 
 DROP PROCEDURE IF EXISTS add_index_if_not_exists;
+
+-- ==========================================
+-- 训练记录表
+-- ==========================================
+CREATE TABLE IF NOT EXISTS `workout_records` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '记录ID',
+  `user_id` bigint NOT NULL COMMENT '用户ID',
+  `plan_id` bigint NOT NULL COMMENT '训练计划ID',
+  `workout_day_id` bigint NOT NULL COMMENT '训练日ID',
+  `content` varchar(500) DEFAULT NULL COMMENT '训练内容',
+  `workout_date` date NOT NULL COMMENT '训练日期',
+  `create_time` datetime(6) DEFAULT NULL COMMENT '创建时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_user_date` (`user_id`, `workout_date`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='训练记录表';
