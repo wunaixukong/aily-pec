@@ -41,17 +41,20 @@ public class PomodoroConfigMemoryService {
      */
     public PomodoroConfig createOrUpdateConfig(PomodoroConfig config) {
         // 设置默认值
+        if (config.getConfigName() == null) {
+            config.setConfigName("默认配置");
+        }
         if (config.getWorkDuration() == null) {
             config.setWorkDuration(configProperties.getDefaultConfig().getWorkDuration());
         }
-        if (config.getShortBreakDuration() == null) {
-            config.setShortBreakDuration(configProperties.getDefaultConfig().getShortBreakDuration());
+        if (config.getBreakDuration() == null) {
+            config.setBreakDuration(configProperties.getDefaultConfig().getBreakDuration());
         }
-        if (config.getLongBreakDuration() == null) {
-            config.setLongBreakDuration(configProperties.getDefaultConfig().getLongBreakDuration());
+        if (config.getStartTime() == null) {
+            config.setStartTime(LocalTime.of(9, 0));
         }
-        if (config.getLongBreakInterval() == null) {
-            config.setLongBreakInterval(configProperties.getDefaultConfig().getLongBreakInterval());
+        if (config.getEndTime() == null) {
+            config.setEndTime(LocalTime.of(18, 0));
         }
         if (config.getAutoStart() == null) {
             config.setAutoStart(configProperties.getDefaultConfig().isAutoStart());
@@ -137,22 +140,25 @@ public class PomodoroConfigMemoryService {
         if (isWorkTime()) {
             // 工作时间配置：50分钟工作，10分钟休息
             PomodoroConfigProperties.WorkdayConfig workday = configProperties.getWorkdayConfig();
+            defaultConfig.setConfigName("工作日配置");
             defaultConfig.setWorkDuration(workday.getWorkDuration());
-            defaultConfig.setShortBreakDuration(workday.getShortBreakDuration());
-            defaultConfig.setLongBreakDuration(workday.getLongBreakDuration());
-            defaultConfig.setLongBreakInterval(workday.getLongBreakInterval());
+            defaultConfig.setBreakDuration(workday.getBreakDuration());
             defaultConfig.setAutoStart(workday.isAutoStart());
             defaultConfig.setIsActive(true);
         } else {
             // 非工作时间配置：标准番茄钟
             PomodoroConfigProperties.DefaultConfig defaultProps = configProperties.getDefaultConfig();
+            defaultConfig.setConfigName("默认配置");
             defaultConfig.setWorkDuration(defaultProps.getWorkDuration());
-            defaultConfig.setShortBreakDuration(defaultProps.getShortBreakDuration());
-            defaultConfig.setLongBreakDuration(defaultProps.getLongBreakDuration());
-            defaultConfig.setLongBreakInterval(defaultProps.getLongBreakInterval());
+            defaultConfig.setBreakDuration(defaultProps.getBreakDuration());
             defaultConfig.setAutoStart(defaultProps.isAutoStart());
             defaultConfig.setIsActive(true);
         }
+
+        // 设置默认时间段
+        PomodoroConfigProperties.WorkTimeConfig workTime = configProperties.getWorkTime();
+        defaultConfig.setStartTime(LocalTime.of(workTime.getStartHour(), 0));
+        defaultConfig.setEndTime(LocalTime.of(workTime.getEndHour(), 0));
 
         return defaultConfig;
     }

@@ -26,15 +26,11 @@ spring:
 pomodoro:
   default-config:
     work-duration: 25
-    short-break-duration: 5
-    long-break-duration: 15
-    long-break-interval: 4
+    break-duration: 5
     auto-start: false
   workday-config:
     work-duration: 50
-    short-break-duration: 10
-    long-break-duration: 30
-    long-break-interval: 4
+    break-duration: 10
     auto-start: true
   work-time:
     start-hour: 9

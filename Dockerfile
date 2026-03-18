@@ -5,10 +5,14 @@ FROM eclipse-temurin:17-jdk-alpine
 WORKDIR /app
 
 # 复制 jar 包
-COPY target/aily-pec-1.0.0.jar app.jar
+COPY aily-pec-1.0.0.jar app.jar
 
 # 暴露端口
 EXPOSE 8080
 
-# 启动命令
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# JVM 优化参数
+ENTRYPOINT ["java", \
+    "-Xms256m", \
+    "-Xmx512m", \
+    "-Djava.security.egd=file:/dev/./urandom", \
+    "-jar", "app.jar"]

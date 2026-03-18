@@ -7,12 +7,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 
 /**
  * 番茄钟配置服务类
- * 处理番茄钟配置的CRUD操作
+ * 处理番茄钟配置的CRUD操作，支持多时间段配置
  */
 @Service
 @RequiredArgsConstructor
@@ -22,17 +23,21 @@ public class PomodoroConfigService {
 
     /**
      * 创建番茄钟配置
+     * 包含时间段校验和重叠检测
      *
      * @param config 配置信息
-     * @return 创建的配置
+     * @return 创建结果
      */
     @Transactional
-    public PomodoroConfig createConfig(PomodoroConfig config) {
-        // 如果设置为激活状态，先停用该用户的其他配置
-        if (Boolean.TRUE.equals(config.getIsActive())) {
-            deactivateUserConfigs(config.getUserId());
+    public Result<PomodoroConfig> createConfig(PomodoroConfig config) {
+        // 校验配置
+        String validationError = validateConfig(config, null);
+        if (validationError != null) {
+            return Result.fail(validationError);
         }
-        return pomodoroConfigRepository.save(config);
+
+        PomodoroConfig saved = pomodoroConfigRepository.save(config);
+        return Result.success(saved);
     }
 
     /**
@@ -52,16 +57,18 @@ public class PomodoroConfigService {
 
             PomodoroConfig existing = existingConfig.get();
 
-            // 如果设置为激活状态，先停用该用户的其他配置
-            if (Boolean.TRUE.equals(config.getIsActive()) && !config.getIsActive().equals(existing.getIsActive())) {
-                deactivateUserConfigs(existing.getUserId());
+            // 校验配置（排除自身进行重叠检测）
+            String validationError = validateConfig(config, existing.getId());
+            if (validationError != null) {
+                return Result.fail(validationError);
             }
 
             // 更新配置字段
+            existing.setConfigName(config.getConfigName());
             existing.setWorkDuration(config.getWorkDuration());
-            existing.setShortBreakDuration(config.getShortBreakDuration());
-            existing.setLongBreakDuration(config.getLongBreakDuration());
-            existing.setLongBreakInterval(config.getLongBreakInterval());
+            existing.setBreakDuration(config.getBreakDuration());
+            existing.setStartTime(config.getStartTime());
+            existing.setEndTime(config.getEndTime());
             existing.setAutoStart(config.getAutoStart());
             existing.setIsActive(config.getIsActive());
 
@@ -73,14 +80,38 @@ public class PomodoroConfigService {
     }
 
     /**
-     * 根据用户ID获取激活的配置
+     * 根据当前时间获取用户生效的配置
      *
      * @param userId 用户ID
-     * @return 激活的配置（可选）
+     * @return 当前时间命中的配置（可选）
+     */
+    @Transactional(readOnly = true)
+    public Optional<PomodoroConfig> getCurrentConfig(Long userId) {
+        LocalTime now = LocalTime.now();
+        return pomodoroConfigRepository.findActiveConfigByUserIdAndTime(userId, now);
+    }
+
+    /**
+     * 获取用户所有激活配置列表，按开始时间排序
+     *
+     * @param userId 用户ID
+     * @return 激活配置列表
+     */
+    @Transactional(readOnly = true)
+    public List<PomodoroConfig> getActiveConfigsByUserId(Long userId) {
+        return pomodoroConfigRepository.findByUserIdAndIsActiveOrderByStartTimeAsc(userId, true);
+    }
+
+    /**
+     * 根据用户ID获取激活的配置（向后兼容）
+     * 改为调用 getCurrentConfig
+     *
+     * @param userId 用户ID
+     * @return 当前时间生效的配置（可选）
      */
     @Transactional(readOnly = true)
     public Optional<PomodoroConfig> getActiveConfigByUserId(Long userId) {
-        return pomodoroConfigRepository.findFirstByUserIdAndIsActive(userId, true);
+        return getCurrentConfig(userId);
     }
 
     /**
@@ -116,17 +147,54 @@ public class PomodoroConfigService {
     }
 
     /**
-     * 停用用户的所有配置
+     * 统一校验配置
+     * - startTime 必须小于 endTime（不支持跨午夜）
+     * - workDuration > 0
+     * - breakDuration > 0
+     * - 同一用户的激活配置时间段不可重叠（相邻可以）
      *
-     * @param userId 用户ID
+     * @param config 待校验的配置
+     * @param excludeId 排除的配置ID（更新时排除自身），新建时传 null
+     * @return 校验错误信息，校验通过返回 null
      */
-    @Transactional
-    private void deactivateUserConfigs(Long userId) {
-        List<PomodoroConfig> activeConfigs = pomodoroConfigRepository.findByUserIdAndIsActive(userId, true);
-        for (PomodoroConfig config : activeConfigs) {
-            config.setIsActive(false);
+    private String validateConfig(PomodoroConfig config, Long excludeId) {
+        // 校验工作时长
+        if (config.getWorkDuration() == null || config.getWorkDuration() <= 0) {
+            return "工作时长必须大于0";
         }
-        pomodoroConfigRepository.saveAll(activeConfigs);
+
+        // 校验休息时长
+        if (config.getBreakDuration() == null || config.getBreakDuration() <= 0) {
+            return "休息时长必须大于0";
+        }
+
+        // 校验时间段
+        if (config.getStartTime() == null || config.getEndTime() == null) {
+            return "开始时间和结束时间不能为空";
+        }
+
+        if (!config.getStartTime().isBefore(config.getEndTime())) {
+            return "开始时间必须早于结束时间（暂不支持跨午夜）";
+        }
+
+        // 仅对激活配置检测重叠
+        if (Boolean.TRUE.equals(config.getIsActive())) {
+            List<PomodoroConfig> overlapping = pomodoroConfigRepository.findOverlappingConfigs(
+                    config.getUserId(),
+                    config.getStartTime(),
+                    config.getEndTime(),
+                    excludeId);
+
+            if (!overlapping.isEmpty()) {
+                PomodoroConfig first = overlapping.get(0);
+                return String.format("时间段与已有配置「%s」(%s-%s) 重叠",
+                        first.getConfigName(),
+                        first.getStartTime(),
+                        first.getEndTime());
+            }
+        }
+
+        return null;
     }
 
 }

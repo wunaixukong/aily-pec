@@ -55,23 +55,15 @@ public class PomodoroConfigProperties {
      */
     public static class DefaultConfig {
         private int workDuration = 25;
-        private int shortBreakDuration = 5;
-        private int longBreakDuration = 15;
-        private int longBreakInterval = 4;
+        private int breakDuration = 5;
         private boolean autoStart = false;
 
         // Getters and Setters
         public int getWorkDuration() { return workDuration; }
         public void setWorkDuration(int workDuration) { this.workDuration = workDuration; }
 
-        public int getShortBreakDuration() { return shortBreakDuration; }
-        public void setShortBreakDuration(int shortBreakDuration) { this.shortBreakDuration = shortBreakDuration; }
-
-        public int getLongBreakDuration() { return longBreakDuration; }
-        public void setLongBreakDuration(int longBreakDuration) { this.longBreakDuration = longBreakDuration; }
-
-        public int getLongBreakInterval() { return longBreakInterval; }
-        public void setLongBreakInterval(int longBreakInterval) { this.longBreakInterval = longBreakInterval; }
+        public int getBreakDuration() { return breakDuration; }
+        public void setBreakDuration(int breakDuration) { this.breakDuration = breakDuration; }
 
         public boolean isAutoStart() { return autoStart; }
         public void setAutoStart(boolean autoStart) { this.autoStart = autoStart; }
@@ -82,23 +74,15 @@ public class PomodoroConfigProperties {
      */
     public static class WorkdayConfig {
         private int workDuration = 50;
-        private int shortBreakDuration = 10;
-        private int longBreakDuration = 30;
-        private int longBreakInterval = 4;
+        private int breakDuration = 10;
         private boolean autoStart = true;
 
         // Getters and Setters
         public int getWorkDuration() { return workDuration; }
         public void setWorkDuration(int workDuration) { this.workDuration = workDuration; }
 
-        public int getShortBreakDuration() { return shortBreakDuration; }
-        public void setShortBreakDuration(int shortBreakDuration) { this.shortBreakDuration = shortBreakDuration; }
-
-        public int getLongBreakDuration() { return longBreakDuration; }
-        public void setLongBreakDuration(int longBreakDuration) { this.longBreakDuration = longBreakDuration; }
-
-        public int getLongBreakInterval() { return longBreakInterval; }
-        public void setLongBreakInterval(int longBreakInterval) { this.longBreakInterval = longBreakInterval; }
+        public int getBreakDuration() { return breakDuration; }
+        public void setBreakDuration(int breakDuration) { this.breakDuration = breakDuration; }
 
         public boolean isAutoStart() { return autoStart; }
         public void setAutoStart(boolean autoStart) { this.autoStart = autoStart; }
