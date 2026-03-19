@@ -1,6 +1,7 @@
 package com.ailypec.controller;
 
 import com.ailypec.entity.User;
+import com.ailypec.response.Result;
 import com.ailypec.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.log4j.Log4j;
@@ -25,15 +26,16 @@ public class UserController {
     }
 
     @GetMapping
-    public ResponseEntity<List<User>> getAllUsers() {
-        return ResponseEntity.ok(userService.getAllUsers());
+    public Result<List<User>> getAllUsers() {
+        List<User> userList = userService.getAllUsers();
+        return Result.success(userList);
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<User> getUserById(@PathVariable Long id) {
+    public Result<User> getUserById(@PathVariable Long id) {
         return userService.getUserById(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+                .map(Result::success)
+                .orElse(Result.fail("User not found"));
     }
 
 }

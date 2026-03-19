@@ -30,7 +30,15 @@ spring:
 
   ai:
     openai:
-      api-key: ${DEEPSEEK_API_KEY}
+      api-key: ${DEEPSEEK_API_KEY:sk-c0cUNVWJt7VQsj6F6IX7Hf6I2WFG8SjBvOXmLWRxz0HJu5pq}
+
+app:
+  ai:
+    workout:
+      enabled: ${WORKOUT_AI_ENABLED:true}
+      base-url: ${WORKOUT_AI_BASE_URL:https://ruoli.dev}
+      chat-path: ${WORKOUT_AI_CHAT_PATH:/v1/messages}
+      model: ${WORKOUT_AI_MODEL:claude-haiku-4-5-20251001}
 
 logging:
   level:

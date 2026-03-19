@@ -110,10 +110,64 @@ CREATE TABLE IF NOT EXISTS `workout_records` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '记录ID',
   `user_id` bigint NOT NULL COMMENT '用户ID',
   `plan_id` bigint NOT NULL COMMENT '训练计划ID',
-  `workout_day_id` bigint NOT NULL COMMENT '训练日ID',
-  `content` varchar(500) DEFAULT NULL COMMENT '训练内容',
+  `workout_day_id` bigint DEFAULT NULL COMMENT '实际完成训练日ID',
+  `content` varchar(500) DEFAULT NULL COMMENT '实际完成训练内容',
+  `recommendation_id` bigint DEFAULT NULL COMMENT '今日推荐快照ID',
+  `base_workout_day_id` bigint DEFAULT NULL COMMENT '原计划训练日ID',
+  `completion_mode` varchar(50) DEFAULT NULL COMMENT '完成模式',
+  `pointer_advanced` tinyint(1) DEFAULT NULL COMMENT '是否推进指针',
+  `status_description_snapshot` varchar(1000) DEFAULT NULL COMMENT '状态描述快照',
+  `recommendation_reason_snapshot` varchar(1000) DEFAULT NULL COMMENT '推荐原因快照',
+  `recommended_workout_day_id` bigint DEFAULT NULL COMMENT '推荐训练日ID',
+  `recommended_content` varchar(500) DEFAULT NULL COMMENT '推荐训练内容快照',
   `workout_date` date NOT NULL COMMENT '训练日期',
   `create_time` datetime(6) DEFAULT NULL COMMENT '创建时间',
   PRIMARY KEY (`id`) USING BTREE,
   KEY `idx_user_date` (`user_id`, `workout_date`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='训练记录表';
+
+CALL add_column_if_not_exists('workout_records', 'recommendation_id', 'BIGINT DEFAULT NULL COMMENT ''今日推荐快照ID''');
+CALL add_column_if_not_exists('workout_records', 'base_workout_day_id', 'BIGINT DEFAULT NULL COMMENT ''原计划训练日ID''');
+CALL add_column_if_not_exists('workout_records', 'completion_mode', 'VARCHAR(50) DEFAULT NULL COMMENT ''完成模式''');
+CALL add_column_if_not_exists('workout_records', 'pointer_advanced', 'TINYINT(1) DEFAULT NULL COMMENT ''是否推进指针''');
+CALL add_column_if_not_exists('workout_records', 'status_description_snapshot', 'VARCHAR(1000) DEFAULT NULL COMMENT ''状态描述快照''');
+CALL add_column_if_not_exists('workout_records', 'recommendation_reason_snapshot', 'VARCHAR(1000) DEFAULT NULL COMMENT ''推荐原因快照''');
+CALL add_column_if_not_exists('workout_records', 'recommended_workout_day_id', 'BIGINT DEFAULT NULL COMMENT ''推荐训练日ID''');
+CALL add_column_if_not_exists('workout_records', 'recommended_content', 'VARCHAR(500) DEFAULT NULL COMMENT ''推荐训练内容快照''');
+
+-- ==========================================
+-- 今日状态表
+-- ==========================================
+CREATE TABLE IF NOT EXISTS `today_statuses` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `user_id` bigint NOT NULL COMMENT '用户ID',
+  `status_date` date NOT NULL COMMENT '状态日期',
+  `description` varchar(1000) NOT NULL COMMENT '状态描述',
+  `create_time` datetime(6) DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime(6) DEFAULT NULL COMMENT '更新时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_user_status_date` (`user_id`, `status_date`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户今日状态表';
+
+-- ==========================================
+-- 今日训练推荐快照表
+-- ==========================================
+CREATE TABLE IF NOT EXISTS `today_workout_recommendations` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `user_id` bigint NOT NULL COMMENT '用户ID',
+  `plan_id` bigint NOT NULL COMMENT '训练计划ID',
+  `recommendation_date` date NOT NULL COMMENT '推荐日期',
+  `base_workout_day_id` bigint NOT NULL COMMENT '原计划训练日ID',
+  `base_content` varchar(500) NOT NULL COMMENT '原计划训练内容',
+  `recommended_workout_day_id` bigint DEFAULT NULL COMMENT '推荐训练日ID',
+  `recommended_content` varchar(500) NOT NULL COMMENT '推荐训练内容',
+  `recommendation_type` varchar(50) NOT NULL COMMENT '推荐类型',
+  `recommendation_reason` varchar(1000) DEFAULT NULL COMMENT '推荐原因',
+  `status_description_snapshot` varchar(1000) DEFAULT NULL COMMENT '状态描述快照',
+  `fallback_used` tinyint(1) NOT NULL DEFAULT 0 COMMENT '是否使用兜底推荐',
+  `completed` tinyint(1) NOT NULL DEFAULT 0 COMMENT '是否已完成训练',
+  `create_time` datetime(6) DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime(6) DEFAULT NULL COMMENT '更新时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_user_recommendation_date` (`user_id`, `recommendation_date`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='今日训练推荐快照表';

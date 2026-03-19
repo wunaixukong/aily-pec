@@ -1,13 +1,14 @@
 package com.ailypec.controller;
 
+import com.ailypec.dto.today.TodayStatusSubmitRequest;
+import com.ailypec.dto.today.TodayWorkoutCompleteRequest;
+import com.ailypec.dto.today.TodayWorkoutCompleteResponse;
+import com.ailypec.dto.today.TodayWorkoutRecommendationResponse;
 import com.ailypec.response.Result;
 import com.ailypec.service.TodayWorkoutService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.Map;
 
 @Slf4j
 @RestController
@@ -18,18 +19,30 @@ public class TodayWorkoutController {
 
     private final TodayWorkoutService todayWorkoutService;
 
+    /**
+     * 提交用户当天的状态描述。
+     */
+    @PostMapping("/{userId}/status")
+    public Result<String> submitTodayStatus(@PathVariable Long userId, @RequestBody TodayStatusSubmitRequest request) {
+        return todayWorkoutService.submitTodayStatus(userId, request);
+    }
+
+    /**
+     * 获取用户当天的训练推荐结果。
+     */
     @GetMapping("/{userId}")
-    public Result<String> getTodayWorkout(@PathVariable Long userId) {
-        Result<String> workout = todayWorkoutService.getTodayWorkout(userId);
+    public Result<TodayWorkoutRecommendationResponse> getTodayWorkout(@PathVariable Long userId) {
+        Result<TodayWorkoutRecommendationResponse> workout = todayWorkoutService.getTodayWorkout(userId);
         log.info("Today's workout for user {} is {}", userId, workout);
         return workout;
     }
 
+    /**
+     * 提交当天训练完成结果。
+     */
     @PostMapping("/{userId}/complete")
-    public Result<String> completeTodayWorkout(@PathVariable Long userId) {
-        return todayWorkoutService.completeTodayWorkout(userId);
-
+    public Result<TodayWorkoutCompleteResponse> completeTodayWorkout(@PathVariable Long userId,
+                                                                     @RequestBody(required = false) TodayWorkoutCompleteRequest request) {
+        return todayWorkoutService.completeTodayWorkout(userId, request);
     }
-
-
 }

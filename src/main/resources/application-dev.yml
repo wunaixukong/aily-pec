@@ -19,6 +19,19 @@ spring:
       host: localhost
       port: 6379
 
+  # AI 训练推荐配置 (中转服务)
+  ai:
+    openai:
+      api-key: sk-c0cUNVWJt7VQsj6F6IX7Hf6I2WFG8SjBvOXmLWRxz0HJu5pq
+
+app:
+  ai:
+    workout:
+      base-url: https://ruoli.dev
+      chat-path: /v1/chat/completions
+      model: claude-haiku-4-5-20251001
+      enabled: true
+
 logging:
   level:
     com.ailypec: DEBUG
