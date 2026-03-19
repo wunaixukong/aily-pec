@@ -1,6 +1,7 @@
 package com.ailypec.service;
 
 import com.ailypec.entity.TodayStatus;
+import com.ailypec.entity.TodayWorkoutChatMessage;
 import com.ailypec.entity.WorkoutDay;
 
 import java.util.List;
@@ -9,9 +10,9 @@ import java.util.Optional;
 public interface WorkoutRecommendationService {
 
     /**
-     * 根据今日状态和候选训练日生成推荐结果。
+     * 根据今日状态、对话历史和候选训练日生成推荐结果。
      */
-    RecommendationResult recommend(TodayStatus todayStatus, WorkoutDay baseDay, List<WorkoutDay> orderedDays, int baseIndex);
+    RecommendationResult recommend(TodayStatus todayStatus, List<TodayWorkoutChatMessage> chatHistory, WorkoutDay baseDay, List<WorkoutDay> orderedDays, int baseIndex);
 
     record RecommendationResult(
             Long recommendedWorkoutDayId,

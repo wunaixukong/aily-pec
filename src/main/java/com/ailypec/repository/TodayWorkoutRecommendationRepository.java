@@ -15,4 +15,6 @@ public interface TodayWorkoutRecommendationRepository extends JpaRepository<Toda
     Optional<TodayWorkoutRecommendation> findByIdAndUserId(Long id, Long userId);
 
     void deleteByUserIdAndRecommendationDateAndCompletedFalse(Long userId, LocalDate recommendationDate);
+
+    java.util.List<TodayWorkoutRecommendation> findByUserIdAndRecommendationDateAndCompletedFalse(Long userId, LocalDate recommendationDate);
 }

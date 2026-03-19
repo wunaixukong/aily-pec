@@ -1,6 +1,7 @@
 package com.ailypec.service;
 
 import com.ailypec.entity.TodayStatus;
+import com.ailypec.entity.TodayWorkoutChatMessage;
 import com.ailypec.entity.WorkoutDay;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -51,11 +52,11 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
     private boolean enabled;
 
     /**
-     * 调用 AI 服务生成今日训练推荐，并在失败时回退到原计划训练。
+     * 调用 AI 服务生成今日训练推荐，支持多轮对话上下文。
      */
     @Override
-    public RecommendationResult recommend(TodayStatus todayStatus, WorkoutDay baseDay, List<WorkoutDay> orderedDays, int baseIndex) {
-        if (todayStatus == null || !StringUtils.hasText(todayStatus.getDescription())) {
+    public RecommendationResult recommend(TodayStatus todayStatus, List<TodayWorkoutChatMessage> chatHistory, WorkoutDay baseDay, List<WorkoutDay> orderedDays, int baseIndex) {
+        if ((todayStatus == null || !StringUtils.hasText(todayStatus.getDescription())) && CollectionUtils.isEmpty(chatHistory)) {
             return fallbackToBase(baseDay, false, "今天按计划训练即可");
         }
         if (!enabled || !StringUtils.hasText(apiKey)) {
@@ -64,7 +65,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
 
         List<WorkoutDay> candidates = buildCandidates(baseDay, orderedDays, baseIndex);
         try {
-            Map<String, Object> payload = buildPayload(todayStatus, baseDay, candidates);
+            Map<String, Object> payload = buildPayload(todayStatus, chatHistory, baseDay, candidates);
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("x-api-key", apiKey);
@@ -105,41 +106,67 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
     }
 
     /**
-     * 构建允许 AI 选择的候选训练日列表。
+     * 构建允许 AI 选择的候选训练日列表 (现在包含整个计划的所有天)。
      */
     private List<WorkoutDay> buildCandidates(WorkoutDay baseDay, List<WorkoutDay> orderedDays, int baseIndex) {
-        List<WorkoutDay> candidates = new ArrayList<>();
-        candidates.add(baseDay);
-        if (baseIndex > 0) {
-            candidates.add(orderedDays.get(baseIndex - 1));
-        }
-        if (baseIndex < orderedDays.size() - 1) {
-            candidates.add(orderedDays.get(baseIndex + 1));
-        }
-        return candidates.stream().distinct().toList();
+        // 返回所有训练日，让 AI 有充分的选择空间（比如避开受伤部位）
+        return new ArrayList<>(orderedDays);
     }
 
     /**
-     * 组装调用 AI 接口所需的请求体 (Anthropic Messages API 格式)。
+     * 组装调用 AI 接口所需的请求体 (Anthropic Messages API 格式，支持多轮对话)。
      */
-    private Map<String, Object> buildPayload(TodayStatus todayStatus, WorkoutDay baseDay, List<WorkoutDay> candidates) {
+    private Map<String, Object> buildPayload(TodayStatus todayStatus, List<TodayWorkoutChatMessage> chatHistory, WorkoutDay baseDay, List<WorkoutDay> candidates) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("model", model);
         payload.put("max_tokens", 1024);
-        payload.put("system", "你是训练推荐助手。你只能从候选项目中选择一个训练项目，或者给出 RECOVERY 恢复建议。请只输出 JSON，格式为 {\"recommendationType\":\"BASE_PLAN|ALTERNATIVE|RECOVERY\",\"recommendedWorkoutDayId\":1,\"recommendedContent\":\"xxx\",\"recommendationReason\":\"xxx\"}。如果 recommendationType 是 RECOVERY，则 recommendedWorkoutDayId 可为 null，recommendedContent 填恢复建议。不要包含任何 Markdown 格式。");
+
+        String systemPrompt = "你是一位专业的健身教练。你的任务是根据用户的身体状态，从给定的候选训练日中推荐最合适的一个，或者给出恢复建议。\n" +
+                "\n" +
+                "核心逻辑：\n" +
+                "1. 避让原则：如果用户提到某个身体部位受伤或疼痛（如'肩部拉伤'），你必须避开所有包含该部位训练的项目。\n" +
+                "2. 智能替换：如果原计划（BASE_PLAN）涉及受伤部位，请从候选项目中挑选一个不涉及该部位的项目作为替代（ALTERNATIVE）。例如：肩部受伤时，如果候选中有'练腿'或'核心训练'，应优先选择它们。\n" +
+                "3. 恢复建议：如果所有候选项目都会加重伤病，或者用户状态极差（如'发烧'、'极度疲劳'），请推荐 'RECOVERY' 并给出具体的恢复建议。\n" +
+                "4. 优先级：原计划 > 合适的替代项目 > 恢复建议。\n" +
+                "5. 对话理解：用户可能会对你之前的建议提出反馈（如“我不想做这个”，“换一个”），请结合对话历史灵活调整，并在每一轮回复中都返回最终确定的完整 JSON 方案。\n" +
+                "\n" +
+                "输出要求：\n" +
+                "必须只输出 JSON 格式，严禁包含任何 Markdown 标签或解释文字。格式如下：\n" +
+                "{\n" +
+                "  \"recommendationType\": \"BASE_PLAN|ALTERNATIVE|RECOVERY\",\n" +
+                "  \"recommendedWorkoutDayId\": 1,\n" +
+                "  \"recommendedContent\": \"训练内容或恢复建议\",\n" +
+                "  \"recommendationReason\": \"你的教练话术，包括对建议的解释，50字以内\"\n" +
+                "}\n" +
+                "注意：如果推荐类型是 RECOVERY，recommendedWorkoutDayId 填 null。";
+
+        payload.put("system", systemPrompt);
 
         List<Map<String, String>> messages = new ArrayList<>();
-        messages.add(Map.of(
-                "role", "user",
-                "content", buildUserPrompt(todayStatus, baseDay, candidates)
-        ));
+
+        // 如果有历史记录，则使用历史记录
+        if (!CollectionUtils.isEmpty(chatHistory)) {
+            for (TodayWorkoutChatMessage msg : chatHistory) {
+                messages.add(Map.of(
+                        "role", msg.getRole(),
+                        "content", msg.getContent()
+                ));
+            }
+        } else {
+            // 首轮推荐：使用 TodayStatus 发起
+            messages.add(Map.of(
+                    "role", "user",
+                    "content", buildUserPrompt(todayStatus, baseDay, candidates)
+            ));
+        }
+
         payload.put("messages", messages);
         payload.put("temperature", 0.2);
         return payload;
     }
 
     /**
-     * 构建发送给 AI 的用户提示词。
+     * 构建发送给 AI 的首轮用户提示词。
      */
     private String buildUserPrompt(TodayStatus todayStatus, WorkoutDay baseDay, List<WorkoutDay> candidates) {
         StringBuilder builder = new StringBuilder();
@@ -149,7 +176,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
         for (WorkoutDay candidate : candidates) {
             builder.append("- ID=").append(candidate.getId()).append(", 内容=").append(candidate.getContent()).append("\n");
         }
-        builder.append("只能返回原计划、相邻训练日之一，或恢复建议。不要返回候选之外的训练项目。原因控制在50字内。");
+        builder.append("只能从候选项目中选择一个最合适的推荐给用户，或者给出恢复建议。请记住避让原则。");
         return builder.toString();
     }
 

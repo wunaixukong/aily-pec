@@ -1,17 +1,20 @@
 package com.ailypec.service;
 
 import com.ailypec.dto.today.TodayStatusSubmitRequest;
+import com.ailypec.dto.today.TodayWorkoutChatRequest;
 import com.ailypec.dto.today.TodayWorkoutCompleteRequest;
 import com.ailypec.dto.today.TodayWorkoutCompleteResponse;
 import com.ailypec.dto.today.TodayWorkoutRecommendationResponse;
 import com.ailypec.entity.ProgressPointer;
 import com.ailypec.entity.TodayStatus;
+import com.ailypec.entity.TodayWorkoutChatMessage;
 import com.ailypec.entity.TodayWorkoutRecommendation;
 import com.ailypec.entity.WorkoutDay;
 import com.ailypec.entity.WorkoutPlan;
 import com.ailypec.entity.WorkoutRecord;
 import com.ailypec.repository.ProgressPointerRepository;
 import com.ailypec.repository.TodayStatusRepository;
+import com.ailypec.repository.TodayWorkoutChatMessageRepository;
 import com.ailypec.repository.TodayWorkoutRecommendationRepository;
 import com.ailypec.repository.WorkoutDayRepository;
 import com.ailypec.repository.WorkoutPlanRepository;
@@ -25,6 +28,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -44,12 +48,13 @@ public class TodayWorkoutService {
     private final WorkoutRecordRepository workoutRecordRepository;
     private final TodayStatusRepository todayStatusRepository;
     private final TodayWorkoutRecommendationRepository todayWorkoutRecommendationRepository;
+    private final TodayWorkoutChatMessageRepository todayWorkoutChatMessageRepository;
     private final WorkoutRecommendationService workoutRecommendationService;
 
     private final ProgressPointerService progressPointerService;
 
     /**
-     * 保存用户当天的状态描述，并清理当天未完成的推荐快照。
+     * 保存用户当天的状态描述，并清理当天未完成的推荐快照及其对话历史。
      */
     @Transactional
     public Result<String> submitTodayStatus(Long userId, TodayStatusSubmitRequest request) {
@@ -57,7 +62,13 @@ public class TodayWorkoutService {
             return Result.fail("状态描述不能为空");
         }
         LocalDate today = LocalDate.now();
-        todayWorkoutRecommendationRepository.deleteByUserIdAndRecommendationDateAndCompletedFalse(userId, today);
+
+        // 查找并删除旧的推荐快照及其关联的对话消息
+        todayWorkoutRecommendationRepository.findByUserIdAndRecommendationDateAndCompletedFalse(userId, today)
+                .forEach(rec -> {
+                    todayWorkoutChatMessageRepository.deleteByRecommendationId(rec.getId());
+                    todayWorkoutRecommendationRepository.delete(rec);
+                });
 
         TodayStatus status = todayStatusRepository
                 .findFirstByUserIdAndStatusDateOrderByCreateTimeDesc(userId, today)
@@ -71,6 +82,7 @@ public class TodayWorkoutService {
 
     /**
      * 获取用户当天的训练推荐，并优先复用当天已生成的推荐快照。
+     * 若生成新快照，则自动记录第一条对话历史。
      */
     @Transactional
     public Result<TodayWorkoutRecommendationResponse> getTodayWorkout(Long userId) {
@@ -90,8 +102,10 @@ public class TodayWorkoutService {
                 .findFirstByUserIdAndStatusDateOrderByCreateTimeDesc(userId, today)
                 .orElse(null);
 
+        // 调用 AI 生成首轮推荐（不带历史）
         WorkoutRecommendationService.RecommendationResult recommendationResult = workoutRecommendationService.recommend(
                 todayStatus,
+                null,
                 context.baseDay,
                 context.days,
                 context.currentIndex
@@ -111,7 +125,77 @@ public class TodayWorkoutService {
         recommendation.setFallbackUsed(recommendationResult.fallbackUsed());
         recommendation.setCompleted(false);
         TodayWorkoutRecommendation saved = todayWorkoutRecommendationRepository.save(recommendation);
+
+        // 记录首轮对话历史
+        if (todayStatus != null) {
+            saveChatMessage(saved.getId(), "user", todayStatus.getDescription());
+        }
+        saveChatMessage(saved.getId(), "assistant", recommendationResult.recommendationReason());
+
         return Result.success(toRecommendationResponse(saved));
+    }
+
+    /**
+     * 与 AI 进行多轮对话，动态调整训练方案。
+     */
+    @Transactional
+    public Result<TodayWorkoutRecommendationResponse> chatTodayWorkout(Long userId, TodayWorkoutChatRequest request) {
+        if (request == null || !StringUtils.hasText(request.getMessage())) {
+            return Result.fail("回复内容不能为空");
+        }
+
+        LocalDate today = LocalDate.now();
+        TodayWorkoutRecommendation recommendation = todayWorkoutRecommendationRepository
+                .findFirstByUserIdAndRecommendationDateOrderByCreateTimeDesc(userId, today)
+                .orElse(null);
+
+        if (recommendation == null) {
+            return Result.fail("请先获取今日推荐方案");
+        }
+        if (Boolean.TRUE.equals(recommendation.getCompleted())) {
+            return Result.fail("今日训练已完成，无法继续对话");
+        }
+
+        WorkoutContext context = buildWorkoutContext(userId);
+        if (context.errorResult != null) {
+            return context.errorResult;
+        }
+
+        // 1. 保存用户消息
+        saveChatMessage(recommendation.getId(), "user", request.getMessage().trim());
+
+        // 2. 加载全量历史
+        List<TodayWorkoutChatMessage> history = todayWorkoutChatMessageRepository.findByRecommendationIdOrderByCreateTimeAsc(recommendation.getId());
+
+        // 3. 调用 AI 获取新方案
+        WorkoutRecommendationService.RecommendationResult recommendationResult = workoutRecommendationService.recommend(
+                null,
+                history,
+                context.baseDay,
+                context.days,
+                context.currentIndex
+        );
+
+        // 4. 保存 AI 消息
+        saveChatMessage(recommendation.getId(), "assistant", recommendationResult.recommendationReason());
+
+        // 5. 更新推荐快照（同步最新方案）
+        recommendation.setRecommendedWorkoutDayId(recommendationResult.recommendedWorkoutDayId());
+        recommendation.setRecommendedContent(recommendationResult.recommendedContent());
+        recommendation.setRecommendationType(recommendationResult.recommendationType());
+        recommendation.setRecommendationReason(recommendationResult.recommendationReason());
+        recommendation.setFallbackUsed(recommendationResult.fallbackUsed());
+        todayWorkoutRecommendationRepository.save(recommendation);
+
+        return Result.success(toRecommendationResponse(recommendation));
+    }
+
+    private void saveChatMessage(Long recommendationId, String role, String content) {
+        TodayWorkoutChatMessage chatMessage = new TodayWorkoutChatMessage();
+        chatMessage.setRecommendationId(recommendationId);
+        chatMessage.setRole(role);
+        chatMessage.setContent(content);
+        todayWorkoutChatMessageRepository.save(chatMessage);
     }
 
     /**

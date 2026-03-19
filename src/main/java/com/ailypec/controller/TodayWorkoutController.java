@@ -1,6 +1,7 @@
 package com.ailypec.controller;
 
 import com.ailypec.dto.today.TodayStatusSubmitRequest;
+import com.ailypec.dto.today.TodayWorkoutChatRequest;
 import com.ailypec.dto.today.TodayWorkoutCompleteRequest;
 import com.ailypec.dto.today.TodayWorkoutCompleteResponse;
 import com.ailypec.dto.today.TodayWorkoutRecommendationResponse;
@@ -25,6 +26,14 @@ public class TodayWorkoutController {
     @PostMapping("/{userId}/status")
     public Result<String> submitTodayStatus(@PathVariable Long userId, @RequestBody TodayStatusSubmitRequest request) {
         return todayWorkoutService.submitTodayStatus(userId, request);
+    }
+
+    /**
+     * 与 AI 进一步对话，调整今日推荐。
+     */
+    @PostMapping("/{userId}/chat")
+    public Result<TodayWorkoutRecommendationResponse> chatTodayWorkout(@PathVariable Long userId, @RequestBody TodayWorkoutChatRequest request) {
+        return todayWorkoutService.chatTodayWorkout(userId, request);
     }
 
     /**

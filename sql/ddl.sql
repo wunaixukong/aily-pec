@@ -135,6 +135,9 @@ CALL add_column_if_not_exists('workout_records', 'recommendation_reason_snapshot
 CALL add_column_if_not_exists('workout_records', 'recommended_workout_day_id', 'BIGINT DEFAULT NULL COMMENT ''推荐训练日ID''');
 CALL add_column_if_not_exists('workout_records', 'recommended_content', 'VARCHAR(500) DEFAULT NULL COMMENT ''推荐训练内容快照''');
 
+-- 修正训练记录表列属性（确保恢复日 workout_day_id 可以为 null）
+ALTER TABLE `workout_records` MODIFY COLUMN `workout_day_id` bigint DEFAULT NULL COMMENT '实际完成训练日ID';
+
 -- ==========================================
 -- 今日状态表
 -- ==========================================
@@ -171,3 +174,16 @@ CREATE TABLE IF NOT EXISTS `today_workout_recommendations` (
   PRIMARY KEY (`id`) USING BTREE,
   KEY `idx_user_recommendation_date` (`user_id`, `recommendation_date`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='今日训练推荐快照表';
+
+-- ==========================================
+-- 今日训练对话消息表
+-- ==========================================
+CREATE TABLE IF NOT EXISTS `today_workout_chat_messages` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '消息ID',
+  `recommendation_id` bigint NOT NULL COMMENT '关联的推荐快照ID',
+  `role` varchar(20) NOT NULL COMMENT '角色: user (用户), assistant (AI)',
+  `content` text NOT NULL COMMENT '消息内容',
+  `create_time` datetime(6) DEFAULT NULL COMMENT '创建时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  KEY `idx_recommendation_id` (`recommendation_id`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='今日训练对话消息表';
