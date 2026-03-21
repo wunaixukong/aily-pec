@@ -2,7 +2,6 @@ server:
   port: ${SERVER_PORT:8080}
 
 spring:
-  # 生产环境数据库配置
   datasource:
     url: ${DATABASE_URL:jdbc:mysql://localhost:3306/ailypec?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true}
     username: ${DATABASE_USERNAME:root}
@@ -21,24 +20,44 @@ spring:
         dialect: org.hibernate.dialect.MySQLDialect
         format_sql: false
 
-  # 生产环境 Redis
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
+      host: ${REDIS_HOST:123.207.199.246}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
 
   ai:
     openai:
-      api-key: ${DEEPSEEK_API_KEY:sk-c0cUNVWJt7VQsj6F6IX7Hf6I2WFG8SjBvOXmLWRxz0HJu5pq}
+      api-key: ${AI_API_KEY:}
 
 app:
+  today-workout-chat:
+    flush-interval-ms: ${TODAY_WORKOUT_CHAT_FLUSH_INTERVAL_MS:30000}
   ai:
     workout:
       enabled: ${WORKOUT_AI_ENABLED:true}
-      base-url: ${WORKOUT_AI_BASE_URL:https://ruoli.dev}
-      chat-path: ${WORKOUT_AI_CHAT_PATH:/v1/messages}
-      model: ${WORKOUT_AI_MODEL:claude-haiku-4-5-20251001}
+      routing:
+        failure-cooldown-seconds: ${WORKOUT_AI_FAILURE_COOLDOWN_SECONDS:120}
+      routes:
+        # 主路由使用的 cc
+        - name: relay-primary
+          api-type: anthropic
+          base-url: ${WORKOUT_AI_ROUTE_1_BASE_URL:https://ruoli.dev}
+          chat-path: ${WORKOUT_AI_ROUTE_1_CHAT_PATH:/v1/messages}
+          model: ${WORKOUT_AI_ROUTE_1_MODEL:claude-haiku-4-5-20251001}
+          api-key: ${WORKOUT_AI_ROUTE_1_API_KEY:sk-c0cUNVWJt7VQsj6F6IX7Hf6I2WFG8SjBvOXmLWRxz0HJu5pq}
+        - name: codex-relay
+          api-type: openai
+          base-url: ${WORKOUT_AI_ROUTE_2_BASE_URL:https://ruoli.dev/v1}
+          chat-path: ${WORKOUT_AI_ROUTE_2_CHAT_PATH:/chat/completions}
+          model: ${WORKOUT_AI_ROUTE_2_MODEL:gpt-5.4}
+          api-key: ${WORKOUT_AI_ROUTE_2_API_KEY:sk-dyNIdlzLCI2plTvXzuV7yf8X4nnCPUuxJRK2ZdpGuP2A0rY4}
+        - name: deepseek-fallback
+          api-type: openai
+          base-url: ${WORKOUT_AI_ROUTE_3_BASE_URL:https://api.deepseek.com}
+          chat-path: ${WORKOUT_AI_ROUTE_3_CHAT_PATH:/chat/completions}
+          model: ${WORKOUT_AI_ROUTE_3_MODEL:deepseek-chat}
+          api-key: ${WORKOUT_AI_ROUTE_3_API_KEY:sk-d29f758bf414483591ba65eb40a02405}
 
 logging:
   level:

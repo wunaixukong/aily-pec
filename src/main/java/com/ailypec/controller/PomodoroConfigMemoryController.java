@@ -16,7 +16,7 @@ import java.util.Map;
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/pomodoro/memory")
+@RequestMapping("/pomodoro/memory")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
 public class PomodoroConfigMemoryController {

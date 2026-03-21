@@ -1,20 +1,20 @@
 package com.ailypec.service;
 
 import com.ailypec.dto.today.TodayStatusSubmitRequest;
+import com.ailypec.dto.today.TodayWorkoutChatHistoryResponse;
+import com.ailypec.dto.today.TodayWorkoutChatItem;
 import com.ailypec.dto.today.TodayWorkoutChatRequest;
 import com.ailypec.dto.today.TodayWorkoutCompleteRequest;
 import com.ailypec.dto.today.TodayWorkoutCompleteResponse;
 import com.ailypec.dto.today.TodayWorkoutRecommendationResponse;
 import com.ailypec.entity.ProgressPointer;
 import com.ailypec.entity.TodayStatus;
-import com.ailypec.entity.TodayWorkoutChatMessage;
 import com.ailypec.entity.TodayWorkoutRecommendation;
 import com.ailypec.entity.WorkoutDay;
 import com.ailypec.entity.WorkoutPlan;
 import com.ailypec.entity.WorkoutRecord;
 import com.ailypec.repository.ProgressPointerRepository;
 import com.ailypec.repository.TodayStatusRepository;
-import com.ailypec.repository.TodayWorkoutChatMessageRepository;
 import com.ailypec.repository.TodayWorkoutRecommendationRepository;
 import com.ailypec.repository.WorkoutDayRepository;
 import com.ailypec.repository.WorkoutPlanRepository;
@@ -29,15 +29,17 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -57,7 +59,7 @@ class TodayWorkoutServiceTest {
     @Mock
     private TodayWorkoutRecommendationRepository todayWorkoutRecommendationRepository;
     @Mock
-    private TodayWorkoutChatMessageRepository todayWorkoutChatMessageRepository;
+    private TodayWorkoutChatSessionService todayWorkoutChatSessionService;
     @Mock
     private WorkoutRecommendationService workoutRecommendationService;
     @Mock
@@ -72,9 +74,6 @@ class TodayWorkoutServiceTest {
     private WorkoutDay day2;
     private WorkoutDay day3;
 
-    /**
-     * 初始化测试所需的基础计划、指针和训练日数据。
-     */
     @BeforeEach
     void setUp() {
         activePlan = new WorkoutPlan();
@@ -103,15 +102,10 @@ class TodayWorkoutServiceTest {
         day3.setContent("核心训练");
     }
 
-    /**
-     * 核心测试：验证多轮对话中，针对伤病避让逻辑。
-     * 场景：原本该练肩 -> 用户说肩部拉伤 -> AI 推荐练腿。
-     */
     @Test
     void shouldRecommendLegsWhenShoulderIsStrainedInChat() {
         mockBaseContext();
 
-        // 1. 模拟已有首轮推荐（原计划是练肩）
         TodayWorkoutRecommendation recommendation = new TodayWorkoutRecommendation();
         recommendation.setId(300L);
         recommendation.setUserId(1L);
@@ -124,41 +118,29 @@ class TodayWorkoutServiceTest {
 
         when(todayWorkoutRecommendationRepository.findFirstByUserIdAndRecommendationDateOrderByCreateTimeDesc(eq(1L), any(LocalDate.class)))
                 .thenReturn(Optional.of(recommendation));
+        when(todayWorkoutChatSessionService.getMessages(300L))
+                .thenReturn(List.of(new TodayWorkoutChatItem("user", "我肩膀疼，不能练肩", null)));
 
-        // 2. 模拟用户发消息：“我肩膀疼，不能练肩，可以换成练腿吗？”
         TodayWorkoutChatRequest chatRequest = new TodayWorkoutChatRequest();
         chatRequest.setMessage("我肩膀疼，不能练肩，可以换成练腿吗？");
 
-        // 模拟历史对话加载
-        List<TodayWorkoutChatMessage> history = new ArrayList<>();
-        history.add(new TodayWorkoutChatMessage()); // 用户的提问
-        when(todayWorkoutChatMessageRepository.findByRecommendationIdOrderByCreateTimeAsc(300L)).thenReturn(history);
-
-        // 3. 模拟 AI 返回结果（正确识别避让原则，推荐练腿）
         WorkoutRecommendationService.RecommendationResult legsResult = new WorkoutRecommendationService.RecommendationResult(
-                day2.getId(), day2.getContent(), "ALTERNATIVE", "考虑到你肩膀受伤，我们避开上肢，今天改练腿部。", false
+                day2.getId(), day2.getContent(), "ALTERNATIVE", "考虑到你肩膀受伤，今天改练腿部。", false
         );
         when(workoutRecommendationService.recommend(any(), any(), eq(day1), eq(List.of(day1, day2, day3)), eq(0)))
                 .thenReturn(legsResult);
 
-        // 4. 执行对话业务逻辑
         Result<TodayWorkoutRecommendationResponse> result = todayWorkoutService.chatTodayWorkout(1L, chatRequest);
 
-        // 5. 断言结果
         assertTrue(result.isSuccess());
         assertEquals("ALTERNATIVE", result.getData().getRecommendationType());
         assertEquals(day2.getId(), result.getData().getRecommendedWorkoutDayId());
         assertEquals("练腿", result.getData().getRecommendedContent());
-
-        // 验证快照是否已更新
         verify(todayWorkoutRecommendationRepository, atLeastOnce()).save(recommendation);
         assertEquals(day2.getId(), recommendation.getRecommendedWorkoutDayId());
         assertEquals("ALTERNATIVE", recommendation.getRecommendationType());
     }
 
-    /**
-     * 验证无状态描述时返回原计划训练日。
-     */
     @Test
     void shouldReturnBaseDayWhenNoStatusDescription() {
         mockBaseContext();
@@ -183,9 +165,6 @@ class TodayWorkoutServiceTest {
         assertFalse(Boolean.TRUE.equals(result.getData().getFallbackUsed()));
     }
 
-    /**
-     * 验证同一天重复获取推荐时复用已有快照。
-     */
     @Test
     void shouldReuseRecommendationSnapshotOnSameDay() {
         mockBaseContext();
@@ -210,9 +189,6 @@ class TodayWorkoutServiceTest {
         verify(workoutRecommendationService, never()).recommend(any(), any(), any(), any(), any(Integer.class));
     }
 
-    /**
-     * 验证完成替代推荐训练时会推进指针。
-     */
     @Test
     void shouldAdvancePointerWhenRecommendedAlternativeCompleted() {
         mockBaseContext();
@@ -256,9 +232,6 @@ class TodayWorkoutServiceTest {
         assertTrue(Boolean.TRUE.equals(captor.getValue().getPointerAdvanced()));
     }
 
-    /**
-     * 验证恢复建议完成后不会推进指针。
-     */
     @Test
     void shouldNotAdvancePointerWhenRecoveryCompleted() {
         mockBaseContext();
@@ -292,9 +265,6 @@ class TodayWorkoutServiceTest {
         verify(progressPointerRepository, never()).save(any(ProgressPointer.class));
     }
 
-    /**
-     * 验证同一天重复完成训练会被拒绝。
-     */
     @Test
     void shouldRejectRepeatedCompleteOnSameDay() {
         mockBaseContext();
@@ -312,9 +282,6 @@ class TodayWorkoutServiceTest {
         assertEquals("今天已经完成训练了，明天再来吧！", result.getMessage());
     }
 
-    /**
-     * 验证 AI 失败时回退到原计划训练。
-     */
     @Test
     void shouldFallbackToBaseDayWhenAiFails() {
         mockBaseContext();
@@ -340,9 +307,6 @@ class TodayWorkoutServiceTest {
         assertEquals(day1.getContent(), result.getData().getRecommendedContent());
     }
 
-    /**
-     * 验证未显式传 recommendationId 时复用当天推荐快照完成训练。
-     */
     @Test
     void shouldUseTodaySnapshotWhenCompleteWithoutRecommendationId() {
         mockBaseContext();
@@ -375,9 +339,6 @@ class TodayWorkoutServiceTest {
         assertEquals(305L, result.getData().getRecommendationId());
     }
 
-    /**
-     * 验证更新当天状态时会清理未完成的推荐快照。
-     */
     @Test
     void shouldReplaceTodayStatusAndClearUncompletedSnapshot() {
         TodayStatus existing = new TodayStatus();
@@ -385,8 +346,11 @@ class TodayWorkoutServiceTest {
         when(todayStatusRepository.findFirstByUserIdAndStatusDateOrderByCreateTimeDesc(eq(1L), any(LocalDate.class)))
                 .thenReturn(Optional.of(existing));
         when(todayStatusRepository.save(any(TodayStatus.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        TodayWorkoutRecommendation recommendation = new TodayWorkoutRecommendation();
+        recommendation.setId(306L);
         when(todayWorkoutRecommendationRepository.findByUserIdAndRecommendationDateAndCompletedFalse(eq(1L), any(LocalDate.class)))
-                .thenReturn(List.of(new TodayWorkoutRecommendation()));
+                .thenReturn(List.of(recommendation));
 
         TodayStatusSubmitRequest request = new TodayStatusSubmitRequest();
         request.setDescription("昨天没睡好，今天想轻一点");
@@ -394,12 +358,87 @@ class TodayWorkoutServiceTest {
         Result<String> result = todayWorkoutService.submitTodayStatus(1L, request);
 
         assertTrue(result.isSuccess());
+        verify(todayWorkoutChatSessionService).deleteSession(306L);
         verify(todayWorkoutRecommendationRepository, atLeastOnce()).delete(any(TodayWorkoutRecommendation.class));
     }
 
-    /**
-     * 统一 mock today 主链路需要的基础上下文。
-     */
+    @Test
+    void shouldReturnTodayChatHistoryFromCurrentRecommendation() {
+        TodayWorkoutRecommendation recommendation = new TodayWorkoutRecommendation();
+        recommendation.setId(307L);
+        when(todayWorkoutRecommendationRepository.findFirstByUserIdAndRecommendationDateOrderByCreateTimeDesc(eq(1L), any(LocalDate.class)))
+                .thenReturn(Optional.of(recommendation));
+
+        TodayWorkoutChatHistoryResponse historyResponse = new TodayWorkoutChatHistoryResponse();
+        historyResponse.setRecommendationId(307L);
+        historyResponse.setMessages(List.of(new TodayWorkoutChatItem("assistant", "今天练腿", null)));
+        when(todayWorkoutChatSessionService.getHistory(307L)).thenReturn(historyResponse);
+
+        Result<TodayWorkoutChatHistoryResponse> result = todayWorkoutService.getTodayWorkoutChatHistory(1L);
+
+        assertTrue(result.isSuccess());
+        assertEquals(307L, result.getData().getRecommendationId());
+        assertEquals(1, result.getData().getMessages().size());
+    }
+
+    @Test
+    void shouldPersistAssistantAndUpdateSnapshotWhenFinalResultParsedSuccessfully() {
+        TodayWorkoutRecommendation recommendation = new TodayWorkoutRecommendation();
+        recommendation.setId(308L);
+        when(todayWorkoutRecommendationRepository.findById(308L)).thenReturn(Optional.of(recommendation));
+
+        WorkoutRecommendationService.RecommendationResult result = new WorkoutRecommendationService.RecommendationResult(
+                day2.getId(), day2.getContent(), "ALTERNATIVE", "今天改练腿", false
+        );
+        when(workoutRecommendationService.parseResult("full-json", day1, List.of(day1, day2, day3))).thenReturn(result);
+
+        todayWorkoutService.updateRecommendationFromFinalResult(308L, "full-json", day1, List.of(day1, day2, day3));
+
+        verify(todayWorkoutChatSessionService, times(1)).appendMessage(308L, "assistant", "今天改练腿");
+        verify(todayWorkoutRecommendationRepository, times(1)).save(recommendation);
+        verify(workoutRecommendationService, never()).extractVisibleRecommendationReason(any());
+        assertEquals(day2.getId(), recommendation.getRecommendedWorkoutDayId());
+        assertEquals(day2.getContent(), recommendation.getRecommendedContent());
+        assertEquals("ALTERNATIVE", recommendation.getRecommendationType());
+        assertEquals("今天改练腿", recommendation.getRecommendationReason());
+    }
+
+    @Test
+    void shouldPersistAssistantOnlyWhenFinalResultParseFailsButVisibleReasonExists() {
+        TodayWorkoutRecommendation recommendation = new TodayWorkoutRecommendation();
+        recommendation.setId(309L);
+        recommendation.setRecommendedWorkoutDayId(day1.getId());
+        recommendation.setRecommendedContent(day1.getContent());
+        recommendation.setRecommendationType("BASE_PLAN");
+        recommendation.setRecommendationReason("原推荐");
+        when(todayWorkoutRecommendationRepository.findById(309L)).thenReturn(Optional.of(recommendation));
+        when(workoutRecommendationService.parseResult("broken-json", day1, List.of(day1, day2, day3))).thenReturn(null);
+        when(workoutRecommendationService.extractVisibleRecommendationReason("broken-json")).thenReturn("前端已看到的解释");
+
+        todayWorkoutService.updateRecommendationFromFinalResult(309L, "broken-json", day1, List.of(day1, day2, day3));
+
+        verify(todayWorkoutChatSessionService, times(1)).appendMessage(309L, "assistant", "前端已看到的解释");
+        verify(todayWorkoutRecommendationRepository, never()).save(any(TodayWorkoutRecommendation.class));
+        assertEquals(day1.getId(), recommendation.getRecommendedWorkoutDayId());
+        assertEquals(day1.getContent(), recommendation.getRecommendedContent());
+        assertEquals("BASE_PLAN", recommendation.getRecommendationType());
+        assertEquals("原推荐", recommendation.getRecommendationReason());
+    }
+
+    @Test
+    void shouldNotPersistAssistantWhenFinalResultParseFailsAndNoVisibleReason() {
+        TodayWorkoutRecommendation recommendation = new TodayWorkoutRecommendation();
+        recommendation.setId(310L);
+        when(todayWorkoutRecommendationRepository.findById(310L)).thenReturn(Optional.of(recommendation));
+        when(workoutRecommendationService.parseResult("invalid", day1, List.of(day1, day2, day3))).thenReturn(null);
+        when(workoutRecommendationService.extractVisibleRecommendationReason("invalid")).thenReturn(null);
+
+        todayWorkoutService.updateRecommendationFromFinalResult(310L, "invalid", day1, List.of(day1, day2, day3));
+
+        verify(todayWorkoutChatSessionService, never()).appendMessage(eq(310L), eq("assistant"), any());
+        verify(todayWorkoutRecommendationRepository, never()).save(any(TodayWorkoutRecommendation.class));
+    }
+
     private void mockBaseContext() {
         when(workoutPlanRepository.findByUserIdAndIsActiveTrue(1L)).thenReturn(List.of(activePlan));
         when(progressPointerService.findByActivePlanId(activePlan.getId())).thenReturn(pointer);

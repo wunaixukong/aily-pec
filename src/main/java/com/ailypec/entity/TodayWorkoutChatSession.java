@@ -1,18 +1,21 @@
 package com.ailypec.entity;
 
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 import lombok.Data;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 
-/**
- * 今日训练对话消息实体类
- */
 @Entity
 @Table(name = "today_workout_chat_messages")
 @Data
-public class TodayWorkoutChatMessage {
+public class TodayWorkoutChatSession {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -21,19 +24,14 @@ public class TodayWorkoutChatMessage {
     @Column(name = "recommendation_id", nullable = false)
     private Long recommendationId;
 
-    /**
-     * 角色: user (用户), assistant (AI)
-     */
-    @Column(name = "role", nullable = false, length = 20)
-    private String role;
-
-    /**
-     * 消息内容
-     */
     @Column(name = "content", nullable = false, columnDefinition = "TEXT")
     private String content;
 
     @CreationTimestamp
     @Column(name = "create_time", updatable = false)
     private LocalDateTime createTime;
+
+    @UpdateTimestamp
+    @Column(name = "update_time")
+    private LocalDateTime updateTime;
 }

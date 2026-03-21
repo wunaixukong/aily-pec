@@ -17,7 +17,7 @@ import java.util.List;
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/pomodoro")
+@RequestMapping("/pomodoro")
 @RequiredArgsConstructor
 @CrossOrigin(origins = "*")
 public class PomodoroConfigController {

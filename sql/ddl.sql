@@ -1,8 +1,6 @@
 -- ==========================================
--- 番茄钟配置表 DDL（幂等，可重复执行）
+-- Pomodoro config table
 -- ==========================================
-
--- 建表（如果不存在）
 CREATE TABLE IF NOT EXISTS `pomodoro_configs` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '配置ID',
   `user_id` bigint NOT NULL COMMENT '用户ID',
@@ -16,15 +14,13 @@ CREATE TABLE IF NOT EXISTS `pomodoro_configs` (
   `created_at` datetime(6) DEFAULT NULL COMMENT '创建时间',
   `updated_at` datetime(6) DEFAULT NULL COMMENT '更新时间',
   PRIMARY KEY (`id`) USING BTREE,
-  KEY `idx_user_id` (`user_id`) USING BTREE COMMENT '用户ID索引',
-  KEY `idx_user_active` (`user_id`, `is_active`) USING BTREE COMMENT '用户激活状态索引'
+  KEY `idx_user_id` (`user_id`) USING BTREE,
+  KEY `idx_user_active` (`user_id`, `is_active`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='番茄钟配置表';
 
 -- ==========================================
--- 迁移：安全地增删列（幂等，已存在/已删除则跳过）
+-- Common migration helpers
 -- ==========================================
-
--- 辅助存储过程：如果列不存在则添加
 DROP PROCEDURE IF EXISTS add_column_if_not_exists;
 DELIMITER //
 CREATE PROCEDURE add_column_if_not_exists(
@@ -43,7 +39,6 @@ BEGIN
 END //
 DELIMITER ;
 
--- 辅助存储过程：如果列存在则删除
 DROP PROCEDURE IF EXISTS drop_column_if_exists;
 DELIMITER //
 CREATE PROCEDURE drop_column_if_exists(
@@ -62,28 +57,9 @@ BEGIN
 END //
 DELIMITER ;
 
--- 新增列（幂等）
-CALL add_column_if_not_exists('pomodoro_configs', 'config_name', "VARCHAR(50) DEFAULT '默认配置' COMMENT '配置名称'");
-CALL add_column_if_not_exists('pomodoro_configs', 'break_duration', "INT NOT NULL DEFAULT 5 COMMENT '休息时长（分钟）'");
-CALL add_column_if_not_exists('pomodoro_configs', 'start_time', "TIME NOT NULL DEFAULT '09:00:00' COMMENT '生效开始时间'");
-CALL add_column_if_not_exists('pomodoro_configs', 'end_time', "TIME NOT NULL DEFAULT '18:00:00' COMMENT '生效结束时间'");
-
--- 删除旧列（幂等）
-CALL drop_column_if_exists('pomodoro_configs', 'short_break_duration');
-CALL drop_column_if_exists('pomodoro_configs', 'long_break_duration');
-CALL drop_column_if_exists('pomodoro_configs', 'long_break_interval');
-
--- 清理辅助存储过程
-DROP PROCEDURE IF EXISTS add_column_if_not_exists;
-DROP PROCEDURE IF EXISTS drop_column_if_exists;
-
--- ==========================================
--- 索引（幂等，已存在则跳过）
--- ==========================================
--- MySQL CREATE INDEX IF NOT EXISTS 需要 8.0.29+，此处用存储过程兼容
-DROP PROCEDURE IF EXISTS add_index_if_not_exists;
+DROP PROCEDURE IF EXISTS add_unique_index_if_not_exists;
 DELIMITER //
-CREATE PROCEDURE add_index_if_not_exists(
+CREATE PROCEDURE add_unique_index_if_not_exists(
     IN tbl VARCHAR(64), IN idx VARCHAR(64), IN idx_cols VARCHAR(255)
 )
 BEGIN
@@ -91,7 +67,7 @@ BEGIN
         SELECT 1 FROM information_schema.STATISTICS
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = tbl AND INDEX_NAME = idx
     ) THEN
-        SET @sql = CONCAT('ALTER TABLE `', tbl, '` ADD KEY `', idx, '` (', idx_cols, ')');
+        SET @sql = CONCAT('ALTER TABLE `', tbl, '` ADD UNIQUE INDEX `', idx, '` ', idx_cols);
         PREPARE stmt FROM @sql;
         EXECUTE stmt;
         DEALLOCATE PREPARE stmt;
@@ -99,12 +75,35 @@ BEGIN
 END //
 DELIMITER ;
 
-CALL add_index_if_not_exists('pomodoro_configs', 'idx_user_active_time', '`user_id`, `is_active`, `start_time`, `end_time`');
+DROP PROCEDURE IF EXISTS drop_index_if_exists;
+DELIMITER //
+CREATE PROCEDURE drop_index_if_exists(
+    IN tbl VARCHAR(64), IN idx VARCHAR(64)
+)
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = tbl AND INDEX_NAME = idx
+    ) THEN
+        SET @sql = CONCAT('ALTER TABLE `', tbl, '` DROP INDEX `', idx, '`');
+        PREPARE stmt FROM @sql;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+    END IF;
+END //
+DELIMITER ;
 
-DROP PROCEDURE IF EXISTS add_index_if_not_exists;
+CALL add_column_if_not_exists('pomodoro_configs', 'config_name', "VARCHAR(50) DEFAULT '默认配置' COMMENT '配置名称'");
+CALL add_column_if_not_exists('pomodoro_configs', 'break_duration', "INT NOT NULL DEFAULT 5 COMMENT '休息时长（分钟）'");
+CALL add_column_if_not_exists('pomodoro_configs', 'start_time', "TIME NOT NULL DEFAULT '09:00:00' COMMENT '生效开始时间'");
+CALL add_column_if_not_exists('pomodoro_configs', 'end_time', "TIME NOT NULL DEFAULT '18:00:00' COMMENT '生效结束时间'");
+
+CALL drop_column_if_exists('pomodoro_configs', 'short_break_duration');
+CALL drop_column_if_exists('pomodoro_configs', 'long_break_duration');
+CALL drop_column_if_exists('pomodoro_configs', 'long_break_interval');
 
 -- ==========================================
--- 训练记录表
+-- Workout records
 -- ==========================================
 CREATE TABLE IF NOT EXISTS `workout_records` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '记录ID',
@@ -126,20 +125,20 @@ CREATE TABLE IF NOT EXISTS `workout_records` (
   KEY `idx_user_date` (`user_id`, `workout_date`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='训练记录表';
 
-CALL add_column_if_not_exists('workout_records', 'recommendation_id', 'BIGINT DEFAULT NULL COMMENT ''今日推荐快照ID''');
-CALL add_column_if_not_exists('workout_records', 'base_workout_day_id', 'BIGINT DEFAULT NULL COMMENT ''原计划训练日ID''');
-CALL add_column_if_not_exists('workout_records', 'completion_mode', 'VARCHAR(50) DEFAULT NULL COMMENT ''完成模式''');
-CALL add_column_if_not_exists('workout_records', 'pointer_advanced', 'TINYINT(1) DEFAULT NULL COMMENT ''是否推进指针''');
-CALL add_column_if_not_exists('workout_records', 'status_description_snapshot', 'VARCHAR(1000) DEFAULT NULL COMMENT ''状态描述快照''');
-CALL add_column_if_not_exists('workout_records', 'recommendation_reason_snapshot', 'VARCHAR(1000) DEFAULT NULL COMMENT ''推荐原因快照''');
-CALL add_column_if_not_exists('workout_records', 'recommended_workout_day_id', 'BIGINT DEFAULT NULL COMMENT ''推荐训练日ID''');
-CALL add_column_if_not_exists('workout_records', 'recommended_content', 'VARCHAR(500) DEFAULT NULL COMMENT ''推荐训练内容快照''');
+CALL add_column_if_not_exists('workout_records', 'recommendation_id', "BIGINT DEFAULT NULL COMMENT '今日推荐快照ID'");
+CALL add_column_if_not_exists('workout_records', 'base_workout_day_id', "BIGINT DEFAULT NULL COMMENT '原计划训练日ID'");
+CALL add_column_if_not_exists('workout_records', 'completion_mode', "VARCHAR(50) DEFAULT NULL COMMENT '完成模式'");
+CALL add_column_if_not_exists('workout_records', 'pointer_advanced', "TINYINT(1) DEFAULT NULL COMMENT '是否推进指针'");
+CALL add_column_if_not_exists('workout_records', 'status_description_snapshot', "VARCHAR(1000) DEFAULT NULL COMMENT '状态描述快照'");
+CALL add_column_if_not_exists('workout_records', 'recommendation_reason_snapshot', "VARCHAR(1000) DEFAULT NULL COMMENT '推荐原因快照'");
+CALL add_column_if_not_exists('workout_records', 'recommended_workout_day_id', "BIGINT DEFAULT NULL COMMENT '推荐训练日ID'");
+CALL add_column_if_not_exists('workout_records', 'recommended_content', "VARCHAR(500) DEFAULT NULL COMMENT '推荐训练内容快照'");
 
--- 修正训练记录表列属性（确保恢复日 workout_day_id 可以为 null）
-ALTER TABLE `workout_records` MODIFY COLUMN `workout_day_id` bigint DEFAULT NULL COMMENT '实际完成训练日ID';
+ALTER TABLE `workout_records`
+    MODIFY COLUMN `workout_day_id` bigint DEFAULT NULL COMMENT '实际完成训练日ID';
 
 -- ==========================================
--- 今日状态表
+-- Today status
 -- ==========================================
 CREATE TABLE IF NOT EXISTS `today_statuses` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
@@ -153,7 +152,7 @@ CREATE TABLE IF NOT EXISTS `today_statuses` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户今日状态表';
 
 -- ==========================================
--- 今日训练推荐快照表
+-- Today workout recommendations
 -- ==========================================
 CREATE TABLE IF NOT EXISTS `today_workout_recommendations` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
@@ -176,14 +175,24 @@ CREATE TABLE IF NOT EXISTS `today_workout_recommendations` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='今日训练推荐快照表';
 
 -- ==========================================
--- 今日训练对话消息表
+-- Today workout chat sessions
 -- ==========================================
 CREATE TABLE IF NOT EXISTS `today_workout_chat_messages` (
-  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '消息ID',
-  `recommendation_id` bigint NOT NULL COMMENT '关联的推荐快照ID',
-  `role` varchar(20) NOT NULL COMMENT '角色: user (用户), assistant (AI)',
-  `content` text NOT NULL COMMENT '消息内容',
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '会话ID',
+  `recommendation_id` bigint NOT NULL COMMENT '关联推荐ID',
+  `content` text NOT NULL COMMENT '会话JSON',
   `create_time` datetime(6) DEFAULT NULL COMMENT '创建时间',
+  `update_time` datetime(6) DEFAULT NULL COMMENT '更新时间',
   PRIMARY KEY (`id`) USING BTREE,
-  KEY `idx_recommendation_id` (`recommendation_id`) USING BTREE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='今日训练对话消息表';
+  UNIQUE KEY `uk_recommendation_id` (`recommendation_id`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='今日训练会话表';
+
+CALL drop_column_if_exists('today_workout_chat_messages', 'role');
+CALL add_column_if_not_exists('today_workout_chat_messages', 'update_time', "DATETIME(6) DEFAULT NULL COMMENT '更新时间'");
+CALL drop_index_if_exists('today_workout_chat_messages', 'idx_recommendation_id');
+CALL add_unique_index_if_not_exists('today_workout_chat_messages', 'uk_recommendation_id', '(`recommendation_id`) USING BTREE');
+
+DROP PROCEDURE IF EXISTS add_column_if_not_exists;
+DROP PROCEDURE IF EXISTS drop_column_if_exists;
+DROP PROCEDURE IF EXISTS add_unique_index_if_not_exists;
+DROP PROCEDURE IF EXISTS drop_index_if_exists;

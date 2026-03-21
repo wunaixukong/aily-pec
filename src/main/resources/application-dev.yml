@@ -2,7 +2,6 @@ server:
   port: 8080
 
 spring:
-  # 开发环境数据库配置
   datasource:
     url: jdbc:postgresql://localhost:5432/ailypec_dev
     username: postgres
@@ -13,24 +12,40 @@ spring:
       ddl-auto: create-drop
     show-sql: true
 
-  # 开发环境 Redis
   data:
     redis:
-      host: localhost
+      host: ${REDIS_HOST:123.207.199.246}
       port: 6379
 
-  # AI 训练推荐配置 (中转服务)
   ai:
     openai:
-      api-key: sk-c0cUNVWJt7VQsj6F6IX7Hf6I2WFG8SjBvOXmLWRxz0HJu5pq
+      api-key: ${AI_API_KEY:}
 
 app:
+  today-workout-chat:
+    flush-interval-ms: ${TODAY_WORKOUT_CHAT_FLUSH_INTERVAL_MS:30000}
   ai:
     workout:
-      base-url: https://ruoli.dev
-      chat-path: /v1/chat/completions
-      model: claude-haiku-4-5-20251001
       enabled: true
+      routing:
+        failure-cooldown-seconds: 90
+      routes:
+        - name: relay-primary
+          api-type: anthropic
+          base-url: ${WORKOUT_AI_ROUTE_1_BASE_URL:https://ruoli.dev}
+          chat-path: ${WORKOUT_AI_ROUTE_1_CHAT_PATH:/v1/messages}
+          model: ${WORKOUT_AI_ROUTE_1_MODEL:claude-haiku-4-5-20251001}
+        - name: codex-relay
+          api-type: openai
+          base-url: ${WORKOUT_AI_ROUTE_2_BASE_URL:https://ruoli.dev/v1}
+          chat-path: ${WORKOUT_AI_ROUTE_2_CHAT_PATH:/chat/completions}
+          model: ${WORKOUT_AI_ROUTE_2_MODEL:gpt-5.4}
+        - name: deepseek-fallback
+          api-type: openai
+          base-url: ${WORKOUT_AI_ROUTE_3_BASE_URL:https://api.deepseek.com}
+          chat-path: ${WORKOUT_AI_ROUTE_3_CHAT_PATH:/chat/completions}
+          model: ${WORKOUT_AI_ROUTE_3_MODEL:deepseek-chat}
+          api-key: ${WORKOUT_AI_ROUTE_3_API_KEY:}
 
 logging:
   level:
