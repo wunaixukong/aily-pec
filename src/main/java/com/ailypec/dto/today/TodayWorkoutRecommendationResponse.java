@@ -2,6 +2,9 @@ package com.ailypec.dto.today;
 
 import lombok.Data;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Data
 public class TodayWorkoutRecommendationResponse {
 
@@ -16,4 +19,5 @@ public class TodayWorkoutRecommendationResponse {
     private String statusDescription;
     private Boolean fallbackUsed;
     private Boolean completed;
+    private List<TodayWorkoutRenderBlock> blocks = new ArrayList<>();
 }

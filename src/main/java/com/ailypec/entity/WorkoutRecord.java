@@ -71,6 +71,24 @@ public class WorkoutRecord {
     @Column(name = "recommended_content", length = 500)
     private String recommendedContent;
 
+    @Column(name = "pointer_previous_day_index")
+    private Integer pointerPreviousDayIndex;
+
+    @Column(name = "pointer_previous_last_workout_date")
+    private LocalDateTime pointerPreviousLastWorkoutDate;
+
+    @Column(name = "revoked", nullable = false)
+    private Boolean revoked = false;
+
+    @Column(name = "revoked_time")
+    private LocalDateTime revokedTime;
+
+    @Column(name = "revoked_reason", length = 500)
+    private String revokedReason;
+
+    @Column(name = "revoked_by", length = 50)
+    private String revokedBy;
+
     /**
      * 训练日期，用于每日限制校验
      */

@@ -13,12 +13,20 @@ public interface WorkoutRecommendationService {
     /**
      * 根据今日状态、对话历史和候选训练日生成推荐结果。
      */
-    RecommendationResult recommend(TodayStatus todayStatus, List<TodayWorkoutChatItem> chatHistory, WorkoutDay baseDay, List<WorkoutDay> orderedDays, int baseIndex);
+    default RecommendationResult recommend(TodayStatus todayStatus, List<TodayWorkoutChatItem> chatHistory, WorkoutDay baseDay, List<WorkoutDay> orderedDays, int baseIndex) {
+        return recommend(todayStatus, chatHistory, baseDay, orderedDays, baseIndex, false);
+    }
+
+    RecommendationResult recommend(TodayStatus todayStatus, List<TodayWorkoutChatItem> chatHistory, WorkoutDay baseDay, List<WorkoutDay> orderedDays, int baseIndex, boolean completedContext);
 
     /**
      * 流式推荐：在 AI 回复过程中实时通过 callback 推送片段内容，最终返回完整响应字符串。
      */
-    void recommendStream(TodayStatus todayStatus, List<TodayWorkoutChatItem> chatHistory, WorkoutDay baseDay, List<WorkoutDay> orderedDays, int baseIndex, Consumer<String> onToken, Consumer<String> onComplete);
+    default void recommendStream(TodayStatus todayStatus, List<TodayWorkoutChatItem> chatHistory, WorkoutDay baseDay, List<WorkoutDay> orderedDays, int baseIndex, Consumer<String> onToken, Consumer<String> onComplete) {
+        recommendStream(todayStatus, chatHistory, baseDay, orderedDays, baseIndex, false, onToken, onComplete);
+    }
+
+    void recommendStream(TodayStatus todayStatus, List<TodayWorkoutChatItem> chatHistory, WorkoutDay baseDay, List<WorkoutDay> orderedDays, int baseIndex, boolean completedContext, Consumer<String> onToken, Consumer<String> onComplete);
 
     /**
      * 解析 AI 文本内容。
@@ -35,7 +43,20 @@ public interface WorkoutRecommendationService {
             String recommendedContent,
             String recommendationType,
             String recommendationReason,
-            boolean fallbackUsed
+            boolean fallbackUsed,
+            ActionProposal actionProposal
+    ) {
+    }
+
+    record ActionProposal(
+            String actionType,
+            String title,
+            String impact,
+            String confirmText,
+            Long recommendationId,
+            Long recordId,
+            String type,
+            String cardType
     ) {
     }
 

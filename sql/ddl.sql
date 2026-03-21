@@ -119,6 +119,12 @@ CREATE TABLE IF NOT EXISTS `workout_records` (
   `recommendation_reason_snapshot` varchar(1000) DEFAULT NULL COMMENT '推荐原因快照',
   `recommended_workout_day_id` bigint DEFAULT NULL COMMENT '推荐训练日ID',
   `recommended_content` varchar(500) DEFAULT NULL COMMENT '推荐训练内容快照',
+  `pointer_previous_day_index` int DEFAULT NULL COMMENT '回滚前的训练日索引快照',
+  `pointer_previous_last_workout_date` datetime(6) DEFAULT NULL COMMENT '回滚前的上次训练时间快照',
+  `revoked` tinyint(1) NOT NULL DEFAULT 0 COMMENT '是否已撤回',
+  `revoked_time` datetime(6) DEFAULT NULL COMMENT '撤回时间',
+  `revoked_reason` varchar(500) DEFAULT NULL COMMENT '撤回原因',
+  `revoked_by` varchar(50) DEFAULT NULL COMMENT '撤回来源',
   `workout_date` date NOT NULL COMMENT '训练日期',
   `create_time` datetime(6) DEFAULT NULL COMMENT '创建时间',
   PRIMARY KEY (`id`) USING BTREE,
@@ -133,6 +139,12 @@ CALL add_column_if_not_exists('workout_records', 'status_description_snapshot', 
 CALL add_column_if_not_exists('workout_records', 'recommendation_reason_snapshot', "VARCHAR(1000) DEFAULT NULL COMMENT '推荐原因快照'");
 CALL add_column_if_not_exists('workout_records', 'recommended_workout_day_id', "BIGINT DEFAULT NULL COMMENT '推荐训练日ID'");
 CALL add_column_if_not_exists('workout_records', 'recommended_content', "VARCHAR(500) DEFAULT NULL COMMENT '推荐训练内容快照'");
+CALL add_column_if_not_exists('workout_records', 'pointer_previous_day_index', "INT DEFAULT NULL COMMENT '回滚前的训练日索引快照'");
+CALL add_column_if_not_exists('workout_records', 'pointer_previous_last_workout_date', "DATETIME(6) DEFAULT NULL COMMENT '回滚前的上次训练时间快照'");
+CALL add_column_if_not_exists('workout_records', 'revoked', "TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已撤回'");
+CALL add_column_if_not_exists('workout_records', 'revoked_time', "DATETIME(6) DEFAULT NULL COMMENT '撤回时间'");
+CALL add_column_if_not_exists('workout_records', 'revoked_reason', "VARCHAR(500) DEFAULT NULL COMMENT '撤回原因'");
+CALL add_column_if_not_exists('workout_records', 'revoked_by', "VARCHAR(50) DEFAULT NULL COMMENT '撤回来源'");
 
 ALTER TABLE `workout_records`
     MODIFY COLUMN `workout_day_id` bigint DEFAULT NULL COMMENT '实际完成训练日ID';

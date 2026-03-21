@@ -53,10 +53,10 @@ class AiWorkoutRecommendationServiceTest {
         WorkoutRecommendationService.RecommendationResult result = service.parseResult("""
                 ```json
                 {
-                  "recommendationType": "ALTERNATIVE",
-                  "recommendedWorkoutDayId": 12,
-                  "recommendedContent": "legs",
-                  "recommendationReason": "switch to legs today"
+                  \"recommendationType\": \"ALTERNATIVE\",
+                  \"recommendedWorkoutDayId\": 12,
+                  \"recommendedContent\": \"legs\",
+                  \"recommendationReason\": \"switch to legs today\"
                 }
                 ```
                 """, baseDay, List.of(baseDay, alternativeDay));
@@ -66,6 +66,7 @@ class AiWorkoutRecommendationServiceTest {
         assertEquals("legs", result.recommendedContent());
         assertEquals("ALTERNATIVE", result.recommendationType());
         assertEquals("switch to legs today", result.recommendationReason());
+        assertNull(result.actionProposal());
     }
 
     @Test
@@ -75,10 +76,10 @@ class AiWorkoutRecommendationServiceTest {
 
         WorkoutRecommendationService.RecommendationResult result = service.parseResult("""
                 {
-                  "recommendationType": "RECOVERY",
-                  "recommendedWorkoutDayId": null,
-                  "recommendedContent": "rest and mobility",
-                  "recommendationReason": "recovery is better today"
+                  \"recommendationType\": \"RECOVERY\",
+                  \"recommendedWorkoutDayId\": null,
+                  \"recommendedContent\": \"rest and mobility\",
+                  \"recommendationReason\": \"recovery is better today\"
                 }
                 """, baseDay, List.of(baseDay));
 
@@ -90,15 +91,65 @@ class AiWorkoutRecommendationServiceTest {
     }
 
     @Test
+    void shouldParseUndoActionProposalFromJson() {
+        AiWorkoutRecommendationService service = createService();
+        WorkoutDay baseDay = workoutDay(11L, "push");
+
+        WorkoutRecommendationService.RecommendationResult result = service.parseResult("""
+                {
+                  \"recommendationType\": \"BASE_PLAN\",
+                  \"recommendedWorkoutDayId\": 11,
+                  \"recommendedContent\": \"push\",
+                  \"recommendationReason\": \"可以帮你撤回今天的打卡\",
+                  \"action\": {
+                    \"actionType\": \"UNDO_COMPLETE\",
+                    \"title\": \"撤回今天的打卡\",
+                    \"impact\": \"撤回后今日训练会恢复为未完成\",
+                    \"confirmText\": \"确认撤回\"
+                  }
+                }
+                """, baseDay, List.of(baseDay));
+
+        assertNotNull(result);
+        assertNotNull(result.actionProposal());
+        assertEquals("UNDO_COMPLETE", result.actionProposal().actionType());
+        assertEquals("撤回今天的打卡", result.actionProposal().title());
+        assertEquals("card", result.actionProposal().type());
+        assertEquals("ACTION_CONFIRM", result.actionProposal().cardType());
+    }
+
+    @Test
+    void shouldIgnoreUnsupportedActionProposal() {
+        AiWorkoutRecommendationService service = createService();
+        WorkoutDay baseDay = workoutDay(11L, "push");
+
+        WorkoutRecommendationService.RecommendationResult result = service.parseResult("""
+                {
+                  \"recommendationType\": \"BASE_PLAN\",
+                  \"recommendedWorkoutDayId\": 11,
+                  \"recommendedContent\": \"push\",
+                  \"recommendationReason\": \"不能处理这个动作\",
+                  \"action\": {
+                    \"actionType\": \"DELETE_PLAN\",
+                    \"title\": \"删除计划\"
+                  }
+                }
+                """, baseDay, List.of(baseDay));
+
+        assertNotNull(result);
+        assertNull(result.actionProposal());
+    }
+
+    @Test
     void shouldExtractReasonFromCompleteJsonPayload() {
         AiWorkoutRecommendationService service = createService();
 
         String reason = service.extractVisibleRecommendationReason("""
                 {
-                  "recommendationType": "BASE_PLAN",
-                  "recommendedWorkoutDayId": 11,
-                  "recommendedContent": "push",
-                  "recommendationReason": "按计划完成今天的推训练"
+                  \"recommendationType\": \"BASE_PLAN\",
+                  \"recommendedWorkoutDayId\": 11,
+                  \"recommendedContent\": \"push\",
+                  \"recommendationReason\": \"按计划完成今天的推训练\"
                 }
                 """);
 

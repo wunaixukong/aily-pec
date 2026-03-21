@@ -54,6 +54,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
     private static final String TYPE_BASE_PLAN = "BASE_PLAN";
     private static final String TYPE_ALTERNATIVE = "ALTERNATIVE";
     private static final String TYPE_RECOVERY = "RECOVERY";
+    private static final String ACTION_UNDO_COMPLETE = "UNDO_COMPLETE";
     private static final String RECOMMENDATION_REASON_FIELD = "\"recommendationReason\"";
 
     private final RestTemplateBuilder restTemplateBuilder;
@@ -77,6 +78,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
                                 WorkoutDay baseDay,
                                 List<WorkoutDay> orderedDays,
                                 int baseIndex,
+                                boolean completedContext,
                                 Consumer<String> onToken,
                                 Consumer<String> onComplete) {
         // 先解析当前可用路由，并按“非冷却中 > 上次成功 > 名称稳定排序”排好顺序。
@@ -89,7 +91,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
 
         log.info("AI stream routing prepared, routeOrder={}", summarizeRoutes(routes));
         List<WorkoutDay> candidates = buildCandidates(baseDay, orderedDays, baseIndex);
-        attemptStream(routes, 0, todayStatus, chatHistory, baseDay, candidates, orderedDays, onToken, onComplete);
+        attemptStream(routes, 0, todayStatus, chatHistory, baseDay, candidates, orderedDays, completedContext, onToken, onComplete);
     }
 
     @Override
@@ -97,8 +99,9 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
                                           List<TodayWorkoutChatItem> chatHistory,
                                           WorkoutDay baseDay,
                                           List<WorkoutDay> orderedDays,
-                                          int baseIndex) {
-        if ((todayStatus == null || !StringUtils.hasText(todayStatus.getDescription())) && CollectionUtils.isEmpty(chatHistory)) {
+                                          int baseIndex,
+                                          boolean completedContext) {
+        if ((todayStatus == null || !StringUtils.hasText(todayStatus.getDescription())) && CollectionUtils.isEmpty(chatHistory) && !completedContext) {
             return fallbackToBase(baseDay, false, "今天按计划训练即可");
         }
 
@@ -115,7 +118,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
             try {
                 log.info("Trying AI route {}, apiType={}, url={}, model={}",
                         route.name(), route.apiType(), route.requestUrl(), route.model());
-                Map<String, Object> payload = buildPayload(route, todayStatus, chatHistory, baseDay, candidates);
+                Map<String, Object> payload = buildPayload(route, todayStatus, chatHistory, baseDay, candidates, completedContext);
                 HttpHeaders headers = buildHeaders(route);
 
                 RestTemplate restTemplate = restTemplateBuilder
@@ -172,7 +175,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
             return null;
         }
         if (TYPE_RECOVERY.equals(payload.recommendationType())) {
-            return new RecommendationResult(null, payload.recommendedContent(), TYPE_RECOVERY, defaultReason(payload.recommendationReason()), false);
+            return new RecommendationResult(null, payload.recommendedContent(), TYPE_RECOVERY, defaultReason(payload.recommendationReason()), false, payload.actionProposal());
         }
         Optional<WorkoutDay> recommendedDay = findRecommendedDayById(orderedDays, payload.recommendedWorkoutDayId());
         if (recommendedDay.isEmpty()) {
@@ -180,7 +183,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
         }
         WorkoutDay day = recommendedDay.get();
         String finalType = baseDay.getId().equals(day.getId()) ? TYPE_BASE_PLAN : TYPE_ALTERNATIVE;
-        return new RecommendationResult(day.getId(), day.getContent(), finalType, defaultReason(payload.recommendationReason()), false);
+        return new RecommendationResult(day.getId(), day.getContent(), finalType, defaultReason(payload.recommendationReason()), false, payload.actionProposal());
     }
 
     private void attemptStream(List<ResolvedRoute> routes,
@@ -190,6 +193,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
                                WorkoutDay baseDay,
                                List<WorkoutDay> candidates,
                                List<WorkoutDay> orderedDays,
+                               boolean completedContext,
                                Consumer<String> onToken,
                                Consumer<String> onComplete) {
         // 流式请求也按顺序切路由，但只有在“还没给前端吐 token”时才安全重试。
@@ -206,7 +210,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
         try {
             log.info("Trying AI stream route {}, index={}, apiType={}, url={}, model={}",
                     route.name(), routeIndex, route.apiType(), route.requestUrl(), route.model());
-            Map<String, Object> payload = buildPayload(route, todayStatus, chatHistory, baseDay, candidates);
+            Map<String, Object> payload = buildPayload(route, todayStatus, chatHistory, baseDay, candidates, completedContext);
             payload.put("stream", true);
 
             String jsonPayload = JSON.toJSONString(payload);
@@ -221,7 +225,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
                         onComplete.accept(null);
                         return;
                     }
-                    attemptStream(routes, routeIndex + 1, todayStatus, chatHistory, baseDay, candidates, orderedDays, onToken, onComplete);
+                    attemptStream(routes, routeIndex + 1, todayStatus, chatHistory, baseDay, candidates, orderedDays, completedContext, onToken, onComplete);
                 }
 
                 @Override
@@ -235,7 +239,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
                             return;
                         }
                         log.info("Retrying AI stream with next route after {} failed", route.name());
-                        attemptStream(routes, routeIndex + 1, todayStatus, chatHistory, baseDay, candidates, orderedDays, onToken, onComplete);
+                        attemptStream(routes, routeIndex + 1, todayStatus, chatHistory, baseDay, candidates, orderedDays, completedContext, onToken, onComplete);
                         return;
                     }
 
@@ -243,7 +247,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
                         if (responseBody == null) {
                             markRouteFailure(route, "empty-body");
                             log.warn("AI stream route {} returned empty body, switching to next route", route.name());
-                            attemptStream(routes, routeIndex + 1, todayStatus, chatHistory, baseDay, candidates, orderedDays, onToken, onComplete);
+                            attemptStream(routes, routeIndex + 1, todayStatus, chatHistory, baseDay, candidates, orderedDays, completedContext, onToken, onComplete);
                             return;
                         }
 
@@ -255,7 +259,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
                                 onComplete.accept(null);
                             } else {
                                 log.info("AI stream route {} produced empty content, retrying next route", route.name());
-                                attemptStream(routes, routeIndex + 1, todayStatus, chatHistory, baseDay, candidates, orderedDays, onToken, onComplete);
+                                attemptStream(routes, routeIndex + 1, todayStatus, chatHistory, baseDay, candidates, orderedDays, completedContext, onToken, onComplete);
                             }
                             return;
                         }
@@ -273,7 +277,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
                             return;
                         }
                         log.info("Retrying AI stream with next route after {} parse failure", route.name());
-                        attemptStream(routes, routeIndex + 1, todayStatus, chatHistory, baseDay, candidates, orderedDays, onToken, onComplete);
+                        attemptStream(routes, routeIndex + 1, todayStatus, chatHistory, baseDay, candidates, orderedDays, completedContext, onToken, onComplete);
                     }
                 }
             });
@@ -281,7 +285,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
             markRouteFailure(route, e.getMessage());
             log.warn("AI stream route {} request build failed: {}", route.name(), e.getMessage());
             log.info("Retrying AI stream with next route after {} request build failure", route.name());
-            attemptStream(routes, routeIndex + 1, todayStatus, chatHistory, baseDay, candidates, orderedDays, onToken, onComplete);
+            attemptStream(routes, routeIndex + 1, todayStatus, chatHistory, baseDay, candidates, orderedDays, completedContext, onToken, onComplete);
         }
     }
 
@@ -363,9 +367,10 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
                                              TodayStatus todayStatus,
                                              List<TodayWorkoutChatItem> chatHistory,
                                              WorkoutDay baseDay,
-                                             List<WorkoutDay> candidates) {
-        String systemPrompt = buildSystemPrompt();
-        List<Map<String, String>> conversation = buildConversation(todayStatus, chatHistory, baseDay, candidates);
+                                             List<WorkoutDay> candidates,
+                                             boolean completedContext) {
+        String systemPrompt = buildSystemPrompt(completedContext);
+        List<Map<String, String>> conversation = buildConversation(todayStatus, chatHistory, baseDay, candidates, completedContext);
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("model", route.model());
@@ -389,7 +394,8 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
     private List<Map<String, String>> buildConversation(TodayStatus todayStatus,
                                                         List<TodayWorkoutChatItem> chatHistory,
                                                         WorkoutDay baseDay,
-                                                        List<WorkoutDay> candidates) {
+                                                        List<WorkoutDay> candidates,
+                                                        boolean completedContext) {
         List<Map<String, String>> messages = new ArrayList<>();
         if (!CollectionUtils.isEmpty(chatHistory)) {
             for (TodayWorkoutChatItem msg : chatHistory) {
@@ -403,7 +409,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
 
         messages.add(Map.of(
                 "role", "user",
-                "content", buildUserPrompt(todayStatus, baseDay, candidates)
+                "content", buildUserPrompt(todayStatus, baseDay, candidates, completedContext)
         ));
         return messages;
     }
@@ -482,7 +488,34 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
         return contentObject instanceof String content && StringUtils.hasText(content) ? content : null;
     }
 
-    private String buildSystemPrompt() {
+    private String buildSystemPrompt(boolean completedContext) {
+        if (completedContext) {
+            return """
+                    你是一位专业的健身教练，同时负责处理用户对今日已打卡训练的纠错咨询。
+
+                    当前场景：今日训练已经打卡完成。你不能改动数据库，也不能直接执行撤回，只能决定是否提议一个待确认动作。
+
+                    输出要求：
+                    必须只输出 JSON，禁止包含 Markdown 或额外解释。格式如下：
+                    {
+                      "recommendationType": "BASE_PLAN",
+                      "recommendedWorkoutDayId": 1,
+                      "recommendedContent": "原训练内容",
+                      "recommendationReason": "给用户的简短回复，不超过 50 字",
+                      "action": {
+                        "actionType": "UNDO_COMPLETE",
+                        "title": "撤回今天的打卡",
+                        "impact": "撤回后今日训练会恢复为未完成，并回滚本次推进的训练进度。",
+                        "confirmText": "确认撤回"
+                      }
+                    }
+
+                    规则：
+                    1. 只有当用户明确表达“误触打卡、想撤回、帮我取消今天打卡”等撤回意图时，才返回 action。
+                    2. 如果不是撤回诉求，action 必须为 null，并明确提示“今日已打卡，如为误触可让我帮你撤回”。
+                    3. recommendationType、recommendedWorkoutDayId、recommendedContent 仅用于兼容现有结构，沿用当前方案即可，不要虚构新的训练推荐。
+                    """;
+        }
         return """
                 你是一位专业的健身教练。你的任务是根据用户的身体状态，从给定的候选训练日中推荐最合适的一个，或者给出恢复建议。
 
@@ -505,11 +538,16 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
                 """;
     }
 
-    private String buildUserPrompt(TodayStatus todayStatus, WorkoutDay baseDay, List<WorkoutDay> candidates) {
+    private String buildUserPrompt(TodayStatus todayStatus, WorkoutDay baseDay, List<WorkoutDay> candidates, boolean completedContext) {
         String statusDescription = todayStatus == null ? "" : defaultString(todayStatus.getDescription());
         StringBuilder builder = new StringBuilder();
         builder.append("用户今日状态：").append(statusDescription).append("\n");
         builder.append("原计划训练：ID=").append(baseDay.getId()).append(", 内容=").append(baseDay.getContent()).append("\n");
+        if (completedContext) {
+            builder.append("当前状态：今日训练已经打卡完成。\n");
+            builder.append("请根据用户最后一条消息判断是否需要提议撤回打卡动作。若不是撤回诉求，请返回明确提示。\n");
+            return builder.toString();
+        }
         builder.append("候选训练项目：\n");
         for (WorkoutDay candidate : candidates) {
             builder.append("- ID=").append(candidate.getId()).append(", 内容=").append(candidate.getContent()).append("\n");
@@ -659,12 +697,31 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
                     textValue(root, "recommendationType"),
                     textValue(root, "recommendedContent"),
                     textValue(root, "recommendationReason"),
-                    longValue(root, "recommendedWorkoutDayId")
+                    longValue(root, "recommendedWorkoutDayId"),
+                    parseActionProposal(root)
             );
         } catch (Exception e) {
             log.warn("Failed to parse AI result JSON: {}", e.getMessage());
             return null;
         }
+    }
+
+    private WorkoutRecommendationService.ActionProposal parseActionProposal(JSONObject root) {
+        if (root == null) {
+            return null;
+        }
+        JSONObject action = root.getJSONObject("action");
+        if (action == null || action.isEmpty()) {
+            return null;
+        }
+        String actionType = textValue(action, "actionType");
+        if (!ACTION_UNDO_COMPLETE.equals(actionType)) {
+            return null;
+        }
+        String title = defaultString(textValue(action, "title"), "撤回今天的打卡");
+        String impact = defaultString(textValue(action, "impact"), "撤回后今日训练会恢复为未完成，并回滚本次推进的训练进度。");
+        String confirmText = defaultString(textValue(action, "confirmText"), "确认撤回");
+        return new WorkoutRecommendationService.ActionProposal(actionType, title, impact, confirmText, null, null, "card", "ACTION_CONFIRM");
     }
 
     /**
@@ -751,7 +808,8 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
                 baseDay.getContent(),
                 TYPE_BASE_PLAN,
                 reason,
-                fallbackUsed
+                fallbackUsed,
+                null
         );
     }
 
@@ -943,7 +1001,8 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
             String recommendationType,
             String recommendedContent,
             String recommendationReason,
-            Long recommendedWorkoutDayId
+            Long recommendedWorkoutDayId,
+            WorkoutRecommendationService.ActionProposal actionProposal
     ) {
     }
 

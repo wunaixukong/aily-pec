@@ -1,9 +1,12 @@
 package com.ailypec.controller;
 
+import com.ailypec.dto.today.TodayWorkoutActionExecuteRequest;
+import com.ailypec.dto.today.TodayWorkoutActionExecuteResponse;
 import com.ailypec.dto.today.TodayWorkoutChatHistoryResponse;
 import com.ailypec.dto.today.TodayWorkoutChatRequest;
 import com.ailypec.dto.today.TodayWorkoutRecommendationResponse;
 import com.ailypec.response.Result;
+import com.ailypec.service.TodayWorkoutActionService;
 import com.ailypec.service.TodayWorkoutService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -22,6 +25,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class ChatMessageController {
 
     private final TodayWorkoutService todayWorkoutService;
+    private final TodayWorkoutActionService todayWorkoutActionService;
 
     /**
      * 与 AI 进一步对话，调整今日推荐。
@@ -47,5 +51,11 @@ public class ChatMessageController {
     @GetMapping("/{userId}/history")
     public Result<TodayWorkoutChatHistoryResponse> getTodayWorkoutChatHistory(@PathVariable Long userId) {
         return todayWorkoutService.getTodayWorkoutChatHistory(userId);
+    }
+
+    @PostMapping("/{userId}/actions/execute")
+    public Result<TodayWorkoutActionExecuteResponse> executeAction(@PathVariable Long userId,
+                                                                   @RequestBody TodayWorkoutActionExecuteRequest request) {
+        return todayWorkoutActionService.execute(userId, request);
     }
 }

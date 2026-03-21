@@ -2,6 +2,7 @@ package com.ailypec.service;
 
 import com.ailypec.dto.today.TodayWorkoutChatHistoryResponse;
 import com.ailypec.dto.today.TodayWorkoutChatItem;
+import com.ailypec.dto.today.TodayWorkoutRenderBlock;
 import com.ailypec.entity.TodayWorkoutChatSession;
 import com.ailypec.repository.TodayWorkoutChatSessionRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -41,6 +42,19 @@ public class TodayWorkoutChatSessionService {
         saveToRedis(recommendationId, sessionContent, true);
     }
 
+    public void setPendingBlocks(Long recommendationId, List<TodayWorkoutRenderBlock> pendingBlocks) {
+        if (recommendationId == null) {
+            return;
+        }
+        ChatSessionContent sessionContent = loadSessionContent(recommendationId);
+        sessionContent.setPendingBlocks(pendingBlocks);
+        saveToRedis(recommendationId, sessionContent, true);
+    }
+
+    public void clearPendingBlocks(Long recommendationId) {
+        setPendingBlocks(recommendationId, null);
+    }
+
     public List<TodayWorkoutChatItem> getMessages(Long recommendationId) {
         if (recommendationId == null) {
             return List.of();
@@ -51,7 +65,9 @@ public class TodayWorkoutChatSessionService {
     public TodayWorkoutChatHistoryResponse getHistory(Long recommendationId) {
         TodayWorkoutChatHistoryResponse response = new TodayWorkoutChatHistoryResponse();
         response.setRecommendationId(recommendationId);
-        response.setMessages(getMessages(recommendationId));
+        ChatSessionContent sessionContent = loadSessionContent(recommendationId);
+        response.setMessages(new ArrayList<>(sessionContent.getMessages()));
+        response.setPendingBlocks(new ArrayList<>(sessionContent.getPendingBlocks()));
         return response;
     }
 
@@ -118,6 +134,7 @@ public class TodayWorkoutChatSessionService {
     public static class ChatSessionContent {
         private Integer version = 1;
         private List<TodayWorkoutChatItem> messages = new ArrayList<>();
+        private List<TodayWorkoutRenderBlock> pendingBlocks = new ArrayList<>();
 
         public List<TodayWorkoutChatItem> getMessages() {
             return messages == null ? Collections.emptyList() : messages;
@@ -125,6 +142,14 @@ public class TodayWorkoutChatSessionService {
 
         public void setMessages(List<TodayWorkoutChatItem> messages) {
             this.messages = messages == null ? new ArrayList<>() : messages;
+        }
+
+        public List<TodayWorkoutRenderBlock> getPendingBlocks() {
+            return pendingBlocks == null ? Collections.emptyList() : pendingBlocks;
+        }
+
+        public void setPendingBlocks(List<TodayWorkoutRenderBlock> pendingBlocks) {
+            this.pendingBlocks = pendingBlocks == null ? new ArrayList<>() : pendingBlocks;
         }
     }
 }

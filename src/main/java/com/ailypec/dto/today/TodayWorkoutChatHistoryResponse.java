@@ -10,4 +10,5 @@ public class TodayWorkoutChatHistoryResponse {
 
     private Long recommendationId;
     private List<TodayWorkoutChatItem> messages = new ArrayList<>();
+    private List<TodayWorkoutRenderBlock> pendingBlocks = new ArrayList<>();
 }
