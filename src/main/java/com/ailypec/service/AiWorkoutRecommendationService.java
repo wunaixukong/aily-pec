@@ -363,6 +363,21 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
         return new ArrayList<>(orderedDays);
     }
 
+    @Override
+    public void recommendOperationStream(List<TodayWorkoutChatItem> chatHistory,
+                                         WorkoutDay baseDay,
+                                         boolean completedContext,
+                                         Consumer<String> onToken,
+                                         Consumer<String> onComplete) {
+        List<ResolvedRoute> routes = resolveRoutes();
+        if (!aiWorkoutProperties.isEnabled() || routes.isEmpty()) {
+            onComplete.accept(null);
+            return;
+        }
+
+        attemptStream(routes, 0, null, chatHistory, baseDay, List.of(baseDay), List.of(baseDay), completedContext, onToken, onComplete);
+    }
+
     private Map<String, Object> buildPayload(ResolvedRoute route,
                                              TodayStatus todayStatus,
                                              List<TodayWorkoutChatItem> chatHistory,
@@ -402,6 +417,14 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
                 messages.add(Map.of(
                         "role", msg.getRole(),
                         "content", msg.getContent()
+                ));
+            }
+
+            // 如果已经打卡，且这是最新的意图识别请求，需要在末尾增加引导
+            if (completedContext) {
+                messages.add(Map.of(
+                        "role", "user",
+                        "content", "请判断用户最近的一条消息是否包含撤回打卡的意图。若包含，必须返回 action 字段。"
                 ));
             }
             return messages;
@@ -501,7 +524,7 @@ public class AiWorkoutRecommendationService implements WorkoutRecommendationServ
                       "recommendationType": "BASE_PLAN",
                       "recommendedWorkoutDayId": 1,
                       "recommendedContent": "原训练内容",
-                      "recommendationReason": "给用户的简短回复，不超过 50 字",
+                      "recommendationReason": "好的，没问题，我这就帮你撤回今天的打卡记录。你可以重新选择方案或稍后再次打卡。",
                       "action": {
                         "actionType": "UNDO_COMPLETE",
                         "title": "撤回今天的打卡",

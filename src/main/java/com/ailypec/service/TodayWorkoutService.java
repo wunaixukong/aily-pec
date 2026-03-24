@@ -41,7 +41,11 @@ import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TodayWorkoutService {
@@ -56,6 +60,7 @@ public class TodayWorkoutService {
     private static final String UNDO_SUCCESS_MESSAGE = "已为你撤回今天的打卡";
     private static final String COMPLETED_CHAT_GUIDANCE = "今日已打卡，如为误触可让我帮你撤回";
     private static final String ACTION_EXECUTE_PATH_TEMPLATE = "/message/%s/actions/execute";
+    private static final java.util.regex.Pattern OPERATION_INTENT_PATTERN = java.util.regex.Pattern.compile(".*(撤回|取消|删掉|重置|误触).*(打卡|记录|完成|训练|方案).*|.*(打卡|记录|完成|训练|方案).*(撤回|取消|删掉|重置|误触).*");
 
     private final WorkoutPlanRepository workoutPlanRepository;
     private final WorkoutDayRepository workoutDayRepository;
@@ -217,50 +222,174 @@ public class TodayWorkoutService {
         saveChatMessage(recommendation.getId(), "user", request.getMessage().trim());
         List<TodayWorkoutChatItem> history = todayWorkoutChatSessionService.getMessages(recommendation.getId());
 
-        workoutRecommendationService.recommendStream(
-                null,
-                history,
-                context.baseDay,
-                context.days,
-                context.currentIndex,
-                completedContext,
-                token -> {
-                    try {
-                        emitter.send(SseEmitter.event().name("message").data(token));
-                    } catch (IOException ignored) {
-                    }
-                },
-                fullContent -> {
-                    if (fullContent == null) {
-                        try {
-                            emitter.send(SseEmitter.event().name("error").data("AI 响应异常"));
-                            emitter.complete();
-                        } catch (IOException ignored) {
-                        }
-                        return;
-                    }
-
-                    try {
-                        TodayWorkoutStreamDoneResponse doneResponse = updateRecommendationFromFinalResult(
-                                recommendation.getId(),
-                                fullContent,
-                                context.baseDay,
-                                context.days,
-                                completedContext
-                        );
-                        emitter.send(SseEmitter.event().name("done").data(doneResponse));
-                        emitter.complete();
-                    } catch (Exception e) {
-                        try {
-                            emitter.send(SseEmitter.event().name("error").data("更新方案失败"));
-                            emitter.complete();
-                        } catch (IOException ignored) {
-                        }
-                    }
-                }
+        // 异步预取 recordId，避免在 AI 响应结束后的“静默期”再去查 DB 导致前端超时
+        CompletableFuture<Long> recordIdFuture = CompletableFuture.supplyAsync(() ->
+                workoutRecordRepository.findFirstByUserIdAndRecommendationIdAndWorkoutDateOrderByCreateTimeDesc(
+                                userId, recommendation.getId(), today)
+                        .map(WorkoutRecord::getId)
+                        .orElse(null)
         );
 
+        boolean isOperationIntent = isOperationIntent(request.getMessage());
+        log.info("Processing chat stream: userId={}, intent={}, completedContext={}", userId, isOperationIntent ? "OPERATION" : "NORMAL", completedContext);
+
+        if (isOperationIntent && completedContext) {
+            // 如果已打卡且意图是操作类，直接由系统返回撤回提议，不再询问 AI，保证 100% 成功率和零延迟
+            handleSystemOperationProposal(emitter, recommendation, recordIdFuture, context);
+            return emitter;
+        }
+
+        if (isOperationIntent) {
+            workoutRecommendationService.recommendOperationStream(
+                    history,
+                    context.baseDay,
+                    completedContext,
+                    token -> {
+                        try {
+                            emitter.send(SseEmitter.event().name("message").data(token));
+                        } catch (IOException ignored) {
+                        }
+                    },
+                    fullContent -> handleAiRecommendationDone(emitter, recommendation, fullContent, context, completedContext, recordIdFuture)
+            );
+        } else {
+            workoutRecommendationService.recommendStream(
+                    null,
+                    history,
+                    context.baseDay,
+                    context.days,
+                    context.currentIndex,
+                    completedContext,
+                    token -> {
+                        try {
+                            emitter.send(SseEmitter.event().name("message").data(token));
+                        } catch (IOException ignored) {
+                        }
+                    },
+                    fullContent -> handleAiRecommendationDone(emitter, recommendation, fullContent, context, completedContext, recordIdFuture)
+            );
+        }
+
         return emitter;
+    }
+
+    private void handleSystemOperationProposal(SseEmitter emitter,
+                                               TodayWorkoutRecommendation recommendation,
+                                               CompletableFuture<Long> recordIdFuture,
+                                               WorkoutContext context) {
+        String msg = "好的，没问题，我这就帮你撤回今天的打卡记录。你可以重新选择方案或稍后再次打卡。";
+        try {
+            // 1. 模拟流式输出
+            for (char c : msg.toCharArray()) {
+                emitter.send(SseEmitter.event().name("message").data(String.valueOf(c)));
+            }
+
+            // 2. 构造 ActionProposal
+            Long recordId = recordIdFuture.getNow(null);
+            WorkoutRecommendationService.ActionProposal proposal = new WorkoutRecommendationService.ActionProposal(
+                    ACTION_UNDO_COMPLETE,
+                    "撤回今天的打卡",
+                    "撤回后今日训练会恢复为未完成，并回滚本次推进的训练进度。",
+                    "确认撤回",
+                    recommendation.getId(),
+                    recordId,
+                    "card",
+                    "ACTION_CONFIRM"
+            );
+
+            // 3. 构建结果块
+            List<TodayWorkoutRenderBlock> blocks = buildBlocks(recommendation.getUserId(), msg, proposal);
+            todayWorkoutChatSessionService.setPendingBlocks(recommendation.getId(), extractNonTextBlocks(blocks));
+
+            TodayWorkoutRecommendationResponse response = toRecommendationResponse(recommendation);
+            response.setRecommendationReason(msg);
+            response.setBlocks(blocks);
+
+            TodayWorkoutStreamDoneResponse doneResponse = new TodayWorkoutStreamDoneResponse(msg, response, blocks);
+
+            // 4. 发送 done
+            synchronized (emitter) {
+                emitter.send(SseEmitter.event().name("done").data(doneResponse));
+                Thread.sleep(100);
+                emitter.complete();
+            }
+            saveChatMessage(recommendation.getId(), "assistant", msg);
+        } catch (Exception e) {
+            log.error("Failed to send system operation proposal", e);
+            emitter.complete();
+        }
+    }
+
+    private void handleAiRecommendationDone(SseEmitter emitter,
+                                            TodayWorkoutRecommendation recommendation,
+                                            String fullContent,
+                                            WorkoutContext context,
+                                            boolean completedContext,
+                                            CompletableFuture<Long> recordIdFuture) {
+        if (fullContent == null) {
+            try {
+                emitter.completeWithError(new RuntimeException("AI 响应异常"));
+            } catch (Exception ignored) {
+            }
+            return;
+        }
+
+        try {
+            Long preloadedRecordId = null;
+            try {
+                // 此时 AI 已经吐完 token，异步任务早已完成，直接 get 即可
+                preloadedRecordId = recordIdFuture.getNow(null);
+            } catch (Exception e) {
+                log.warn("Failed to get preloaded recordId: {}", e.getMessage());
+            }
+
+            TodayWorkoutStreamDoneResponse doneResponse = updateRecommendationFromFinalResult(
+                    recommendation.getId(),
+                    fullContent,
+                    context.baseDay,
+                    context.days,
+                    completedContext,
+                    preloadedRecordId
+            );
+
+            // 使用 synchronized 确保同一时间只有一个线程操作 emitter
+            synchronized (emitter) {
+                try {
+                    emitter.send(SseEmitter.event().name("done").data(doneResponse));
+                    // 稍微延迟关闭，给网络缓冲区留出时间
+                    Thread.sleep(100);
+                    emitter.complete();
+                } catch (Exception e) {
+                    log.warn("Failed to send done event to SSE emitter: {}", e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.error("Error processing AI recommendation completion", e);
+            try {
+                emitter.complete();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private boolean isOperationIntent(String message) {
+        if (!StringUtils.hasText(message)) {
+            return false;
+        }
+        String msg = message.toLowerCase();
+        // 操作词：想要改变现状
+        boolean hasAction = msg.contains("撤回") || msg.contains("撤销") || msg.contains("取消")
+                || msg.contains("删掉") || msg.contains("删除") || msg.contains("重置")
+                || msg.contains("误触") || msg.contains("点错") || msg.contains("重新");
+
+        // 对象词：针对的是打卡记录
+        boolean hasObject = msg.contains("打卡") || msg.contains("记录") || msg.contains("完成")
+                || msg.contains("训练") || msg.contains("方案") || msg.contains("内容");
+
+        // 特殊快捷短语
+        boolean quickMatch = msg.contains("帮我撤回") || msg.contains("帮我取消") || msg.contains("写错了") || msg.contains("重来");
+
+        return (hasAction && hasObject) || quickMatch;
     }
 
     @Transactional
@@ -268,7 +397,9 @@ public class TodayWorkoutService {
                                                                               String fullContent,
                                                                               WorkoutDay baseDay,
                                                                               List<WorkoutDay> orderedDays,
-                                                                              boolean completedContext) {
+                                                                              boolean completedContext,
+                                                                              Long preloadedRecordId) {
+        log.info("AI Final Content for recommendation {}: {}", recommendationId, fullContent);
         TodayWorkoutRecommendation recommendation = todayWorkoutRecommendationRepository.findById(recommendationId).orElse(null);
         if (recommendation == null) {
             return new TodayWorkoutStreamDoneResponse(null, null, List.of());
@@ -276,7 +407,7 @@ public class TodayWorkoutService {
 
         WorkoutRecommendationService.RecommendationResult result = workoutRecommendationService.parseResult(fullContent, baseDay, orderedDays);
         if (result != null) {
-            TodayWorkoutRecommendationResponse response = applyChatRecommendationResult(recommendation, result, completedContext);
+            TodayWorkoutRecommendationResponse response = applyChatRecommendationResult(recommendation, result, completedContext, preloadedRecordId);
             return new TodayWorkoutStreamDoneResponse(result.recommendationReason(), response, response.getBlocks());
         }
 
@@ -285,6 +416,15 @@ public class TodayWorkoutService {
             saveChatMessage(recommendation.getId(), "assistant", visibleReason);
         }
         return new TodayWorkoutStreamDoneResponse(visibleReason, toRecommendationResponse(recommendation), buildTextBlocks(visibleReason));
+    }
+
+    @Transactional
+    public TodayWorkoutStreamDoneResponse updateRecommendationFromFinalResult(Long recommendationId,
+                                                                              String fullContent,
+                                                                              WorkoutDay baseDay,
+                                                                              List<WorkoutDay> orderedDays,
+                                                                              boolean completedContext) {
+        return updateRecommendationFromFinalResult(recommendationId, fullContent, baseDay, orderedDays, completedContext, null);
     }
 
     public Result<TodayWorkoutChatHistoryResponse> getTodayWorkoutChatHistory(Long userId) {
@@ -466,7 +606,8 @@ public class TodayWorkoutService {
 
     private TodayWorkoutRecommendationResponse applyChatRecommendationResult(TodayWorkoutRecommendation recommendation,
                                                                              WorkoutRecommendationService.RecommendationResult recommendationResult,
-                                                                             boolean completedContext) {
+                                                                             boolean completedContext,
+                                                                             Long preloadedRecordId) {
         String assistantMessage = recommendationResult.recommendationReason();
         if (completedContext && recommendationResult.actionProposal() == null) {
             assistantMessage = COMPLETED_CHAT_GUIDANCE;
@@ -476,7 +617,7 @@ public class TodayWorkoutService {
         List<TodayWorkoutRenderBlock> blocks = buildBlocks(
                 recommendation.getUserId(),
                 assistantMessage,
-                attachActionContext(recommendation, recommendationResult.actionProposal())
+                attachActionContext(recommendation, recommendationResult.actionProposal(), preloadedRecordId)
         );
         if (completedContext) {
             todayWorkoutChatSessionService.setPendingBlocks(recommendation.getId(), extractNonTextBlocks(blocks));
@@ -494,6 +635,12 @@ public class TodayWorkoutService {
         response.setRecommendationReason(assistantMessage);
         response.setBlocks(blocks);
         return response;
+    }
+
+    private TodayWorkoutRecommendationResponse applyChatRecommendationResult(TodayWorkoutRecommendation recommendation,
+                                                                             WorkoutRecommendationService.RecommendationResult recommendationResult,
+                                                                             boolean completedContext) {
+        return applyChatRecommendationResult(recommendation, recommendationResult, completedContext, null);
     }
 
     private List<TodayWorkoutRenderBlock> buildBlocks(Long userId,
@@ -564,17 +711,21 @@ public class TodayWorkoutService {
     }
 
     private WorkoutRecommendationService.ActionProposal attachActionContext(TodayWorkoutRecommendation recommendation,
-                                                                            WorkoutRecommendationService.ActionProposal actionProposal) {
+                                                                            WorkoutRecommendationService.ActionProposal actionProposal,
+                                                                            Long preloadedRecordId) {
         if (actionProposal == null || recommendation == null) {
             return null;
         }
-        Long recordId = workoutRecordRepository
-                .findFirstByUserIdAndRecommendationIdAndWorkoutDateOrderByCreateTimeDesc(
-                        recommendation.getUserId(),
-                        recommendation.getId(),
-                        recommendation.getRecommendationDate())
-                .map(WorkoutRecord::getId)
-                .orElse(null);
+        Long recordId = preloadedRecordId;
+        if (recordId == null) {
+            recordId = workoutRecordRepository
+                    .findFirstByUserIdAndRecommendationIdAndWorkoutDateOrderByCreateTimeDesc(
+                            recommendation.getUserId(),
+                            recommendation.getId(),
+                            recommendation.getRecommendationDate())
+                    .map(WorkoutRecord::getId)
+                    .orElse(null);
+        }
         return new WorkoutRecommendationService.ActionProposal(
                 actionProposal.actionType(),
                 actionProposal.title(),
@@ -585,6 +736,11 @@ public class TodayWorkoutService {
                 actionProposal.type(),
                 actionProposal.cardType()
         );
+    }
+
+    private WorkoutRecommendationService.ActionProposal attachActionContext(TodayWorkoutRecommendation recommendation,
+                                                                            WorkoutRecommendationService.ActionProposal actionProposal) {
+        return attachActionContext(recommendation, actionProposal, null);
     }
 
     private WorkoutRecord resolveUndoTargetRecord(Long userId, TodayWorkoutActionExecuteRequest request, LocalDate today) {

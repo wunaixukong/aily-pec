@@ -617,6 +617,50 @@ class TodayWorkoutServiceTest {
         verify(todayWorkoutRecommendationRepository, atLeastOnce()).delete(any(TodayWorkoutRecommendation.class));
     }
 
+    @Test
+    void shouldReturnSystemProposalImmediatelyWhenUndoIntentDetectedAndCompleted() throws Exception {
+        mockBaseContext();
+        TodayWorkoutRecommendation recommendation = recommendation(330L, true);
+        when(todayWorkoutRecommendationRepository.findFirstByUserIdAndRecommendationDateOrderByCreateTimeDesc(eq(1L), any(LocalDate.class)))
+                .thenReturn(Optional.of(recommendation));
+
+        WorkoutRecord record = new WorkoutRecord();
+        record.setId(999L);
+        when(workoutRecordRepository.findFirstByUserIdAndRecommendationIdAndWorkoutDateOrderByCreateTimeDesc(eq(1L), eq(330L), any(LocalDate.class)))
+                .thenReturn(Optional.of(record));
+
+        TodayWorkoutChatRequest request = new TodayWorkoutChatRequest();
+        request.setMessage("不小心点到了打卡，我要撤回");
+
+        org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter = todayWorkoutService.chatTodayWorkoutStream(1L, request);
+
+        assertNotNull(emitter);
+        // 由于 handleSystemOperationProposal 是同步执行的（为了模拟流式），
+        // 我们可以通过验证 mock 行为来确认逻辑是否走到
+        verify(todayWorkoutChatSessionService).setPendingBlocks(eq(330L), any());
+        verify(todayWorkoutChatSessionService).appendMessage(eq(330L), eq("assistant"), any());
+    }
+
+    @Test
+    void shouldIdentifyUndoIntentCorrecty() {
+        assertTrue(invokeIsOperationIntent("我要撤销打卡"));
+        assertTrue(invokeIsOperationIntent("打卡点错了，帮我取消"));
+        assertTrue(invokeIsOperationIntent("误触了打卡"));
+        assertTrue(invokeIsOperationIntent("删掉这条训练记录"));
+        assertFalse(invokeIsOperationIntent("今天练什么"));
+        assertFalse(invokeIsOperationIntent("帮我制定方案")); // 方案属于对象词，但没有操作词
+    }
+
+    private boolean invokeIsOperationIntent(String message) {
+        try {
+            java.lang.reflect.Method method = TodayWorkoutService.class.getDeclaredMethod("isOperationIntent", String.class);
+            method.setAccessible(true);
+            return (boolean) method.invoke(todayWorkoutService, message);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private TodayWorkoutRecommendation recommendation(Long id, boolean completed) {
         TodayWorkoutRecommendation recommendation = new TodayWorkoutRecommendation();
         recommendation.setId(id);

@@ -29,6 +29,15 @@ public interface WorkoutRecommendationService {
     void recommendStream(TodayStatus todayStatus, List<TodayWorkoutChatItem> chatHistory, WorkoutDay baseDay, List<WorkoutDay> orderedDays, int baseIndex, boolean completedContext, Consumer<String> onToken, Consumer<String> onComplete);
 
     /**
+     * 专门用于操作类意图的流式推荐（如撤回打卡），提示词更短。
+     */
+    void recommendOperationStream(List<TodayWorkoutChatItem> chatHistory,
+                                  WorkoutDay baseDay,
+                                  boolean completedContext,
+                                  Consumer<String> onToken,
+                                  Consumer<String> onComplete);
+
+    /**
      * 解析 AI 文本内容。
      */
     RecommendationResult parseResult(String content, WorkoutDay baseDay, List<WorkoutDay> orderedDays);
