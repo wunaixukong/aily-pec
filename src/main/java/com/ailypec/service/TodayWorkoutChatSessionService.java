@@ -26,19 +26,29 @@ public class TodayWorkoutChatSessionService {
 
     private static final String SESSION_KEY_PREFIX = "today_workout_chat:";
     private static final String DIRTY_SET_KEY = "today_workout_chat:dirty";
-    private static final Duration SESSION_TTL = Duration.ofDays(7);
+    private static final Duration SESSION_TTL = Duration.ofDays(1);
 
     private final StringRedisTemplate stringRedisTemplate;
     private final TodayWorkoutChatSessionRepository todayWorkoutChatSessionRepository;
     private final ObjectMapper objectMapper;
 
     public void appendMessage(Long recommendationId, String role, String content) {
-        if (recommendationId == null || !StringUtils.hasText(role) || !StringUtils.hasText(content)) {
+        appendMessage(recommendationId, role, content, null);
+    }
+
+    public void appendMessage(Long recommendationId, String role, String content, List<TodayWorkoutRenderBlock> renderBlocks) {
+        if (recommendationId == null || (!StringUtils.hasText(role) && !StringUtils.hasText(content))) {
             return;
         }
 
         ChatSessionContent sessionContent = loadSessionContent(recommendationId);
-        sessionContent.getMessages().add(new TodayWorkoutChatItem(role, content.trim(), LocalDateTime.now()));
+        TodayWorkoutChatItem item = new TodayWorkoutChatItem();
+        item.setRole(role);
+        item.setContent(content != null ? content.trim() : "");
+        item.setRenderBlocks(renderBlocks != null ? new ArrayList<>(renderBlocks) : null);
+        item.setCreateTime(LocalDateTime.now());
+
+        sessionContent.getMessages().add(item);
         saveToRedis(recommendationId, sessionContent, true);
     }
 

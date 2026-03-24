@@ -313,7 +313,7 @@ public class TodayWorkoutService {
                 Thread.sleep(100);
                 emitter.complete();
             }
-            saveChatMessage(recommendation.getId(), "assistant", msg);
+            saveChatMessage(recommendation.getId(), "assistant", msg, blocks);
         } catch (Exception e) {
             log.error("Failed to send system operation proposal", e);
             emitter.complete();
@@ -582,7 +582,7 @@ public class TodayWorkoutService {
         }
 
         todayWorkoutChatSessionService.clearPendingBlocks(recommendation.getId());
-        saveChatMessage(recommendation.getId(), "assistant", UNDO_SUCCESS_MESSAGE);
+        saveChatMessage(recommendation.getId(), "assistant", UNDO_SUCCESS_MESSAGE, buildBlocks(recommendation.getUserId(), UNDO_SUCCESS_MESSAGE, null));
 
         TodayWorkoutActionExecuteResponse response = buildUndoExecuteResponse(recommendation, record, true, false, UNDO_SUCCESS_MESSAGE);
         return Result.success(response);
@@ -612,13 +612,14 @@ public class TodayWorkoutService {
         if (completedContext && recommendationResult.actionProposal() == null) {
             assistantMessage = COMPLETED_CHAT_GUIDANCE;
         }
-        saveChatMessage(recommendation.getId(), "assistant", assistantMessage);
 
         List<TodayWorkoutRenderBlock> blocks = buildBlocks(
                 recommendation.getUserId(),
                 assistantMessage,
                 attachActionContext(recommendation, recommendationResult.actionProposal(), preloadedRecordId)
         );
+        saveChatMessage(recommendation.getId(), "assistant", assistantMessage, blocks);
+
         if (completedContext) {
             todayWorkoutChatSessionService.setPendingBlocks(recommendation.getId(), extractNonTextBlocks(blocks));
         } else {
@@ -774,7 +775,11 @@ public class TodayWorkoutService {
     }
 
     private void saveChatMessage(Long recommendationId, String role, String content) {
-        todayWorkoutChatSessionService.appendMessage(recommendationId, role, content);
+        saveChatMessage(recommendationId, role, content, null);
+    }
+
+    private void saveChatMessage(Long recommendationId, String role, String content, List<TodayWorkoutRenderBlock> renderBlocks) {
+        todayWorkoutChatSessionService.appendMessage(recommendationId, role, content, renderBlocks);
     }
 
     private CompletionSelection resolveCompletionSelection(TodayWorkoutCompleteRequest request,

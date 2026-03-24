@@ -13,5 +13,6 @@ public class TodayWorkoutChatItem {
 
     private String role;
     private String content;
-    private LocalDateTime createTime;
+    private java.util.List<TodayWorkoutRenderBlock> renderBlocks;
+    private java.time.LocalDateTime createTime;
 }
