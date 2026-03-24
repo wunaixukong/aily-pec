@@ -146,6 +146,36 @@ public class TodayWorkoutService {
         return Result.success(toRecommendationResponse(saved));
     }
 
+    @Transactional(readOnly = true)
+    public Result<com.ailypec.dto.today.TodayWorkoutNextResponse> getNextWorkout(Long userId) {
+        WorkoutContext context = buildWorkoutContext(userId);
+        if (context.errorResult != null) {
+            return Result.fail(context.errorResult.getMessage());
+        }
+
+        LocalDate today = LocalDate.now();
+        Optional<TodayWorkoutRecommendation> recommendation = todayWorkoutRecommendationRepository
+                .findFirstByUserIdAndRecommendationDateOrderByCreateTimeDesc(userId, today);
+
+        int nextIndex;
+        if (recommendation.isPresent() && Boolean.TRUE.equals(recommendation.get().getCompleted())) {
+            // 今日已完成，当前指针已更新，指向的就是下一次
+            nextIndex = context.currentIndex;
+        } else {
+            // 今日未完成（不论是否已推荐），下一次内容是 currentIndex + 1
+            nextIndex = (context.currentIndex + 1) % context.days.size();
+        }
+
+        WorkoutDay nextDay = context.days.get(nextIndex);
+        com.ailypec.dto.today.TodayWorkoutNextResponse response = new com.ailypec.dto.today.TodayWorkoutNextResponse();
+        response.setWorkoutDayId(nextDay.getId());
+        response.setDayOrder(nextDay.getDayOrder());
+        response.setContent(nextDay.getContent());
+        response.setPlanId(context.activePlan.getId());
+
+        return Result.success(response);
+    }
+
     @Transactional
     public Result<TodayWorkoutRecommendationResponse> chatTodayWorkout(Long userId, TodayWorkoutChatRequest request) {
         if (request == null || !StringUtils.hasText(request.getMessage())) {

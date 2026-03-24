@@ -3,6 +3,7 @@ package com.ailypec.controller;
 import com.ailypec.dto.today.TodayStatusSubmitRequest;
 import com.ailypec.dto.today.TodayWorkoutCompleteRequest;
 import com.ailypec.dto.today.TodayWorkoutCompleteResponse;
+import com.ailypec.dto.today.TodayWorkoutNextResponse;
 import com.ailypec.dto.today.TodayWorkoutRecommendationResponse;
 import com.ailypec.response.Result;
 import com.ailypec.service.TodayWorkoutService;
@@ -34,6 +35,11 @@ public class TodayWorkoutController {
         Result<TodayWorkoutRecommendationResponse> workout = todayWorkoutService.getTodayWorkout(userId);
         log.info("Today's workout for user {} is {}", userId, workout);
         return workout;
+    }
+
+    @GetMapping("/{userId}/next")
+    public Result<TodayWorkoutNextResponse> getNextWorkout(@PathVariable Long userId) {
+        return todayWorkoutService.getNextWorkout(userId);
     }
 
     /**
