@@ -121,7 +121,7 @@ class TodayWorkoutServiceTest {
         when(todayWorkoutRecommendationRepository.findFirstByUserIdAndRecommendationDateOrderByCreateTimeDesc(eq(1L), any(LocalDate.class)))
                 .thenReturn(Optional.of(recommendation));
         when(todayWorkoutChatSessionService.getMessages(300L))
-                .thenReturn(List.of(new TodayWorkoutChatItem("user", "我肩膀疼，不能练肩", null)));
+                .thenReturn(List.of(new TodayWorkoutChatItem("user", "我肩膀疼，不能练肩", null, null)));
 
         TodayWorkoutChatRequest chatRequest = new TodayWorkoutChatRequest();
         chatRequest.setMessage("我肩膀疼，不能练肩，可以换成练腿吗？");
@@ -501,7 +501,7 @@ class TodayWorkoutServiceTest {
 
         TodayWorkoutChatHistoryResponse historyResponse = new TodayWorkoutChatHistoryResponse();
         historyResponse.setRecommendationId(307L);
-        historyResponse.setMessages(List.of(new TodayWorkoutChatItem("assistant", "今天练腿", null)));
+        historyResponse.setMessages(List.of(new TodayWorkoutChatItem("assistant", "今天练腿", null, null)));
         historyResponse.setPendingBlocks(List.of(new TodayWorkoutRenderBlock(
                 "card",
                 new TodayWorkoutCardBlockData("ACTION_CONFIRM", "撤回今天的打卡", "撤回后恢复为未完成", List.of(
